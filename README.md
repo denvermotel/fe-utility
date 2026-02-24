@@ -106,7 +106,7 @@ Selettore rapido per trimestre, mese o anno intero. La data fine viene **automat
 
 | File | Descrizione |
 |---|---|
-| `FE_bookmarklet_.js` | Sorgente JavaScript del bookmarklet |
+| `FE_bookmarklet.js` | Sorgente JavaScript del bookmarklet |
 | `FE_istruzioni.html` | Pagina HTML con installazione guidata e bookmarklet da trascinare |
 | `README.md` | Questo file |
 
