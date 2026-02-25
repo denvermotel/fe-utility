@@ -1,155 +1,169 @@
-# 📄 Plugin Fatture Elettroniche e Corrispettivi — v0.93 beta
+# 📄 FE-Utility
 
-Bookmarklet per il portale [ivaservizi.agenziaentrate.gov.it](https://ivaservizi.agenziaentrate.gov.it)
+**Toolbox per il portale ivaservizi.agenziaentrate.gov.it**
 
----
+Userscript per Tampermonkey / Greasemonkey che aggiunge una barra degli strumenti al portale della fatturazione elettronica dell'Agenzia delle Entrate, con funzioni di export Excel e download massivo.
 
-## ⚙ Installazione
-
-1. **Mostra la barra dei preferiti** del browser — `Ctrl+Shift+B` (Chrome / Edge / Firefox)
-2. Apri il file `FE_istruzioni.html` nel browser e **trascina il pulsante verde** nella barra dei preferiti
-3. Alternativa: tasto destro sul pulsante → **Aggiungi ai preferiti**
-
-> 💡 I dati delle fatture già scaricate sono salvati nel `localStorage` del browser. Persistono tra sessioni diverse ma vengono eliminati se si pulisce la cache del browser.
+[![Version](https://img.shields.io/badge/versione-0.94%20beta-green)](#)
+[![License: GPL v3](https://img.shields.io/badge/licenza-GPL%20v3-blue)](https://www.gnu.org/licenses/gpl-3.0)
+[![Tampermonkey](https://img.shields.io/badge/Tampermonkey-compatible-brightgreen)](https://www.tampermonkey.net/)
+[![Greasemonkey](https://img.shields.io/badge/Greasemonkey-compatible-orange)](https://www.greasespot.net/)
 
 ---
 
-## ▶ Come usarlo
+## ⚡ Installazione rapida
 
-1. Accedi su [ivaservizi.agenziaentrate.gov.it](https://ivaservizi.agenziaentrate.gov.it)
-2. Naviga nella sezione desiderata (Fatture emesse, Fatture acquisti, Corrispettivi) e imposta il periodo di ricerca
-3. Clicca il bookmarklet salvato nei preferiti: appare la **barra verde fissa in cima alla pagina**
-4. Scegli l'azione desiderata. Una seconda riga con la barra di avanzamento appare durante le operazioni lunghe. Il pulsante **Stop** permette di interrompere in qualsiasi momento
+> Richiede **Tampermonkey** (Chrome/Edge/Firefox) o **Greasemonkey** (Firefox)
+
+1. Installa l'estensione del browser:
+   - [Tampermonkey per Chrome](https://chrome.google.com/webstore/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo)
+   - [Tampermonkey per Firefox](https://addons.mozilla.org/it/firefox/addon/tampermonkey/)
+   - [Greasemonkey per Firefox](https://addons.mozilla.org/it/firefox/addon/greasemonkey/)
+
+2. Clicca il link di installazione:
+
+   **[➤ Installa FE-Utility.user.js](https://raw.githubusercontent.com/denvermotel/fe-utility/main/FE-Utility.user.js)**
+
+   Tampermonkey aprirà automaticamente la finestra di conferma installazione.
+
+3. Accedi su [ivaservizi.agenziaentrate.gov.it](https://ivaservizi.agenziaentrate.gov.it) — la barra verde apparirà automaticamente in cima alla pagina.
+
+---
+
+## 🖼️ Anteprima
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│ 📄 FE-Utility v0.94β │ ⬇ Scarica fatture │ 📊 Fatture→Excel │ ...  │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+La barra usa `all:initial !important` per resistere ai CSS Bootstrap del portale e rimanere sempre visibile e correttamente formattata.
 
 ---
 
 ## ✨ Funzionalità
 
 ### ⬇ Scarica fatture
-**Sezione:** Fatture emesse / acquisti
-
-Scarica i file XML e i metadati di tutte le fatture nel periodo selezionato, iterando automaticamente su tutte le pagine.
-
----
+Naviga automaticamente su tutte le pagine della lista e scarica i file **XML + metadati** di ogni fattura nel periodo selezionato. Lo stato di ogni download viene salvato in `localStorage` per evitare ri-scaricamenti.
 
 ### 📊 Fatture → Excel
-**Sezione:** Fatture emesse / acquisti
+Genera un file `.xls` con il dettaglio IVA di tutte le fatture:
 
-Naviga nel dettaglio di ogni fattura e genera un file `.xls` con i seguenti dati:
+| Colonna | Fonte | Nota |
+|---|---|---|
+| Data, N. Fattura, Tipo Doc. | Lista | |
+| ID SDI | Dettaglio | `strong[2]` nella pagina dettaglio |
+| Cliente / Fornitore | Lista | `children[6]`: formato `PIVA PIVA - Nome` |
+| Partita IVA | Lista | Primo token prima di ` - ` |
+| Aliquota IVA | Dettaglio | Una riga per aliquota (22%, N2, ecc.) |
+| Imponibile, Imposta | Dettaglio | Per quella aliquota |
+| Tot. Imponibile, Tot. IVA, Totale | Calcolato | Somma di tutte le aliquote |
+| Bollo Virtuale | Lista | `children[13]` |
 
-| Colonna | Descrizione |
-|---|---|
-| Data | Data della fattura |
-| N. Fattura | Numero documento |
-| ID SDI | Identificativo file SdI |
-| Tipo Documento | Fattura / Nota di credito / ecc. |
-| Cliente / Fornitore | Nome soggetto (cliente su emesse, fornitore su ricevute) |
-| Partita IVA | P.IVA del soggetto |
-| Aliquota IVA | Una riga per aliquota (es. 22.00%, 10.00%, N4…) |
-| Imponibile | Imponibile per quella aliquota |
-| Imposta | IVA per quella aliquota |
-| Tot. Imponibile | Totale imponibile della fattura (tutte le aliquote) |
-| Tot. IVA | Totale IVA della fattura |
-| Totale Fattura | Tot. Imponibile + Tot. IVA |
-| Bollo Virtuale | Sì / No |
-
-- Le fatture con più aliquote IVA occupano una **riga per aliquota** (i campi anagrafici e i totali sono ripetuti)
-- Su fatture **emesse**: chiede se includere le **fatture transfrontaliere** nel medesimo file
+- Fatture multi-aliquota → **una riga per aliquota**
+- Su fatture emesse: propone di includere le **fatture transfrontaliere**
+- Note di credito evidenziate in rosso
 - Nome file: `PARTITAIVA_emesse.xls` / `PARTITAIVA_ricevute.xls`
 
-**Esempio output:**
-
-```
-Data       | N.Fattura | ID SDI      | Tipo    | Cliente           | P.IVA       | Aliquota | Imponibile | Imposta | Tot.Imp. | Tot.IVA | Totale  | Bollo
-15/01/2026 | 1/A       | 19887650123 | Fattura | Rossi Forniture   | 07654320156 | 22.00%   | 500,00     | 110,00  | 500,00   | 110,00  | 610,00  | No
-20/01/2026 | 2/A       | 19887650456 | Fattura | Bianchi Servizi   | 09123450789 | 10.00%   | 200,00     |  20,00  | 200,00   |  20,00  | 220,00  | Sì
-```
-
----
-
 ### 📈 Corrispettivi → Excel
-**Sezione:** Corrispettivi telematici
+Genera un file `.xls` per ogni matricola dispositivo. Colonne dinamiche per aliquota.
 
-Naviga nel dettaglio di ogni corrispettivo e genera un file `.xls` **per ogni matricola dispositivo**.
-
-| Colonna | Descrizione |
+| Colonna | Nota |
 |---|---|
-| ID Invio | Identificativo invio telematico |
-| Data | Data del giorno |
-| Imponibile X% | Imponibile per ogni aliquota presente |
-| IVA X% | IVA per ogni aliquota presente |
-| Tot. Imponibile | Somma imponibili giornalieri |
-| Tot. IVA | Somma IVA giornaliera |
-| Resi (memo) | Valore resi — solo visualizzazione, già dedotto a monte dal portale |
-| Annulli (memo) | Valore annulli — solo visualizzazione, già dedotto a monte dal portale |
-| Totale Corrispettivi | Tot. Imponibile + Tot. IVA |
+| ID Invio, Data | |
+| Imponibile X% / IVA X% | Una coppia per aliquota presente |
+| Tot. Imponibile, Tot. IVA | |
+| Resi (memo), Annulli (memo) | Il portale li deduce già a monte |
+| Totale Corrispettivi | Tot. Imp. + Tot. IVA |
 
-- Righe ordinate per **data crescente**
-- Nome file: `PARTITAIVA_MATRICOLA.xls`
-
-> ℹ️ Resi e Annulli sono colonne *memo* (in grigio) perché il portale li sottrae già a monte dall'imponibile. Il Totale Corrispettivi è calcolato come `Imponibile + IVA`.
-
----
+Nome file: `PARTITAIVA_MATRICOLA.xls`
 
 ### 📅 Selettore date rapido
-**Sezione:** Ovunque
+Selettore integrato per periodo di riferimento con scorciatoie da tastiera:
 
-Selettore rapido per trimestre, mese o anno intero. La data fine viene **automaticamente limitata a oggi** se il periodo è ancora in corso (evita l'errore "data futura" del portale).
-
-**Scorciatoie tastiera:**
-- Numpad `1`–`4` → I, II, III, IV trimestre
-- `1`–`9`, `0`, `O`, `P` → Gennaio–Dicembre
-
----
-
-## 📁 File
-
-| File | Descrizione |
+| Tasto | Azione |
 |---|---|
-| `FE_bookmarklet.js` | Sorgente JavaScript del bookmarklet |
-| `FE_istruzioni.html` | Pagina HTML con installazione guidata e bookmarklet da trascinare |
-| `README.md` | Questo file |
+| `1` `2` `3` `4` (numpad) | Trim. I, II, III, IV |
+| `1`–`9`, `0`, `O`, `P` | Gen–Dic |
 
 ---
 
 ## 🔧 Note tecniche
 
-- **Compatibilità:** Chrome, Firefox, Edge (qualsiasi browser con barra dei preferiti)
-- **Portale target:** `ivaservizi.agenziaentrate.gov.it` (versione 2025–2026 con routing Angular)
-- **Storage:** `localStorage` del browser — nessun dato inviato a server esterni
-- **CSS isolation:** La barra usa `all:initial !important` su tutti gli elementi per resistere ai CSS Bootstrap del portale
-- **Deduplicazione Angular:** Il portale monta 3 copie della `ng-repeat` nel DOM; il plugin deduplica per `href` prima dell'elaborazione
-- **Nessuna formula Excel:** Tutti i valori numerici sono calcolati in JavaScript prima della scrittura nel file `.xls`
+### Struttura colonne lista fatture (DOM Angular)
+
+```
+[0]  Tipo fattura
+[1]  Tipo documento
+[2]  Numero fattura
+[3]  Data fattura
+[4]  Angular {{dataRegistrazione}}      ← ignorato (template non renderizzato)
+[5]  Angular {{identificativoCliente}}  ← ignorato (template non renderizzato)
+[6]  "PIVA PIVA - Denominazione"        ← nome + P.IVA
+[7]  Imponibile
+[8]  IVA
+[9]  ID SDI
+[10] Stato consegna
+[11] Angular template                   ← ignorato
+[12] Data consegna / presa visione
+[13] Bollo virtuale (vuoto = No; figlio [data-ng-if] visibile = Sì)
+[14] Btn Dettaglio
+```
+
+### Compatibilità browser
+
+| Browser | Estensione | Stato |
+|---|---|---|
+| Chrome / Chromium | Tampermonkey | ✅ Testato |
+| Firefox | Tampermonkey | ✅ Testato |
+| Firefox | Greasemonkey 4 | ✅ Compatibile |
+| Edge | Tampermonkey | ✅ Compatibile |
+| Safari | Userscripts | ⚠ Non testato |
+
+### Download XLS
+
+Lo script usa `GM_download` (quando disponibile) per evitare il blocco popup del browser sui download multipli. Il fallback al metodo `anchor.click()` è automatico.
+
+```javascript
+// Logica di download (semplificata)
+if (typeof GM_download === 'function') {
+    GM_download({ url: blobUrl, name: filename });
+} else {
+    // fallback anchor click classico
+}
+```
 
 ---
 
-## 📋 Changelog
+## 📁 File del repository
 
-### v0.93 beta — 23 febbraio 2026
-- 🆕 Funzione **Fatture → Excel**: naviga nel dettaglio di ogni fattura e genera un file `.xls` con tutti i dati IVA (Data, N. Fattura, ID SDI, Tipo Doc., Nome C/F, P.IVA, Aliquota, Imponibile, Imposta, Totali, Bollo Virtuale)
-- 🆕 Export fatture emesse: propone di includere le fatture transfrontaliere nel medesimo file Excel
-- ❌ Rimossa funzione "Migliora tabella" (sostituita dall'export Excel)
-- ❌ Rimosso pulsante "Transfrontaliere" separato (integrato nell'export fatture)
-
-### v0.92 beta — 23 febbraio 2026
-- 🔧 Fix barra superiore: `all:initial !important` per resistere ai CSS Bootstrap del portale
-- 🔧 Fix Excel corrispettivi: Resi e Annulli come memo, Totale = Imponibile + IVA
-- 🆕 Excel corrispettivi: aggiunta colonna ID Invio
-
-### v0.91 beta — 23 febbraio 2026
-- 🆕 Barra fissa in cima alla pagina al posto del pannello flottante
-- 🆕 Excel corrispettivi: righe ordinate per data, nome file `piva_matricola.xls`
-- 🔧 Fix selettore date: cap automatico a oggi per periodi in corso
-
-### v0.90 beta — 23 febbraio 2026
-- 🆕 Prima release bookmarklet (Chrome, Firefox, Edge)
-- 🆕 Scaricamento fatture con paginazione automatica illimitata
-- 🆕 Analisi corrispettivi → Excel per matricola
-- 🔧 Fix deduplicazione corrispettivi (3 istanze Angular)
-- 🔧 `localStorage` al posto di `chrome.storage`
+| File | Descrizione |
+|---|---|
+| `FE-Utility.user.js` | Lo userscript da installare |
+| `README.md` | Questo file |
+| `CHANGELOG.md` | Storico delle versioni |
 
 ---
 
-## ⚠ Disclaimer
+## ⚠️ Disclaimer
 
-Questo strumento è un ausilio personale per l'accesso ai propri dati fiscali sul portale dell'Agenzia delle Entrate. Non è affiliato né approvato dall'Agenzia delle Entrate. L'utilizzo è a proprio rischio. I dati rimangono localmente nel browser dell'utente.
+FE-Utility è un progetto open source sviluppato a scopo personale e didattico.
+
+**Privacy:** Questo strumento è progettato secondo il principio della privacy-by-design. Tutte le elaborazioni avvengono esclusivamente client-side (nel tuo browser). Nessun dato viene raccolto, salvato o trasmesso a server esterni.
+
+**Responsabilità:** Il software è fornito "così com'è" (as is), senza alcuna garanzia esplicita o implicita. Sebbene sia stato sviluppato con cura, l'autore non si assume alcuna responsabilità per eventuali errori, inesattezze o conseguenze derivanti dal suo utilizzo. L'utente è l'unico responsabile dell'uso che ne viene fatto.
+
+---
+
+## 📜 Licenza
+
+Questo progetto è distribuito sotto licenza **GNU General Public License v3.0** (GPL-3.0-or-later).
+
+In sintesi, la GPL v3 garantisce che:
+- ✅ Puoi usare, copiare e distribuire liberamente il software
+- ✅ Puoi modificare il codice sorgente
+- ✅ Le versioni modificate devono essere rilasciate con la stessa licenza GPL v3
+- ❌ Non puoi creare versioni proprietarie o commerciali senza condividere le modifiche al codice sorgente
+
+Testo completo: [https://www.gnu.org/licenses/gpl-3.0](https://www.gnu.org/licenses/gpl-3.0)
