@@ -4,7 +4,7 @@
 
 Userscript per Tampermonkey / Greasemonkey che aggiunge una barra degli strumenti al portale della fatturazione elettronica dell'Agenzia delle Entrate, con funzioni di export Excel e download massivo.
 
-[![Version](https://img.shields.io/badge/versione-0.94%20beta-green)](#)
+[![Version](https://img.shields.io/badge/versione-0.94%20gamma-green)](#)
 [![License: GPL v3](https://img.shields.io/badge/licenza-GPL%20v3-blue)](https://www.gnu.org/licenses/gpl-3.0)
 [![Tampermonkey](https://img.shields.io/badge/Tampermonkey-compatible-brightgreen)](https://www.tampermonkey.net/)
 [![Greasemonkey](https://img.shields.io/badge/Greasemonkey-compatible-orange)](https://www.greasespot.net/)
@@ -22,7 +22,7 @@ Userscript per Tampermonkey / Greasemonkey che aggiunge una barra degli strument
 
 2. Clicca il link di installazione:
 
-   **[➤ Installa FE-Utility.user.js](https://raw.githubusercontent.com/denvermotel/fe-utility/main/FE-Utility.user.js)**
+   **[➤ Installa FE-Utility.user.js](https://raw.githubusercontent.com/denvermotel/fe-utility/refs/heads/main/FE-Utility.user.js)**
 
    Tampermonkey aprirà automaticamente la finestra di conferma installazione.
 

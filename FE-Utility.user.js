@@ -1,13 +1,16 @@
 // ==UserScript==
 // @name           FE-Utility
 // @namespace      https://github.com/denvermotel/fe-utility
-// @version        0.94
-// @description    Toolbox per ivaservizi.agenziaentrate.gov.it: scarica fatture, export Excel fatture/corrispettivi, selettore date rapido
+// @downloadURL    https://raw.githubusercontent.com/denvermotel/fe-utility/refs/heads/main/FE-Utility.user.js
+// @updateURL      https://raw.githubusercontent.com/denvermotel/fe-utility/refs/heads/main/FE-Utility.user.js
+// @version        0.94.3
+// @description    Toolbox per ivaservizi.agenziaentrate.gov.it: scarica fatture, export Excel fatture/corrispettivi, selettore date rapido, caricamento massivo in pagina
 // @author         denvermotel
 // @match          https://ivaservizi.agenziaentrate.gov.it/*
 // @icon           https://www.agenziaentrate.gov.it/portale/favicon.ico
 // @grant          GM_download
 // @grant          GM_info
+// @grant          unsafeWindow
 // @run-at         document-idle
 // @noframes
 // @license        GPL-3.0-or-later
@@ -138,24 +141,73 @@
      * Tenta di portare tutti gli elementi su una sola pagina modificando pageSize
      * nello scope Angular. Restituisce true se riuscito.
      */
+    /**
+     * Carica tutte le fatture/corrispettivi in una singola pagina
+     * aumentando pageSize nello scope Angular.
+     *
+     * Strategia 1: modifica pager.pageSize via $apply (funziona se Angular non ha
+     *   un limite server-side sul pageSize).
+     * Strategia 2: intercetta la risposta $http modificando i dati del pager dopo
+     *   che Angular li ha ricevuti (unsafeWindow → accesso all'oggetto Angular reale).
+     *
+     * Restituisce Promise che si risolve con true se il caricamento massivo è
+     * stato avviato, false altrimenti.
+     */
     function trySetAllOnOnePage() {
-        try {
-            var scope = getVmScope();
-            if (!scope || !scope.vm.pager) return false;
-            var pager = scope.vm.pager;
-            if (pager.totalPages <= 1) return true; // già tutto su una pagina
-            var oldSize = pager.pageSize;
-            scope.$apply(function () {
-                pager.pageSize = 9999;
-                if (scope.vm.setPage) scope.vm.setPage(1);
-            });
-            setTimeout(function () {
-                // Dopo 1s verifica se è cambiato
-                var newPages = getTotalPages();
-                log('PageSize hack: pagine ora = ' + newPages);
-            }, 1000);
-            return (getTotalPages() <= 1);
-        } catch (e) { return false; }
+        return new Promise(function (resolve) {
+            try {
+                var win = (typeof unsafeWindow !== 'undefined') ? unsafeWindow : window;
+                var ng = win.angular;
+                if (!ng) { resolve(false); return; }
+
+                var scope = getVmScope();
+                if (!scope || !scope.vm || !scope.vm.pager) { resolve(false); return; }
+
+                var pager = scope.vm.pager;
+                var total = pager.totalItems || (pager.totalPages * pager.pageSize) || 0;
+                if (pager.totalPages <= 1) { resolve(true); return; }
+
+                log('trySetAllOnOnePage: totalItems=' + total + ' pageSize=' + pager.pageSize);
+
+                // Imposta pageSize al totale elementi (o 9999 se non noto)
+                var newSize = total > 0 ? total + 10 : 9999;
+                scope.$apply(function () {
+                    pager.pageSize = newSize;
+                    pager.currentPage = 1;
+                    if (scope.vm.setPage) scope.vm.setPage(1);
+                    // Alcuni controller espongono vm.pageSize direttamente
+                    if (scope.vm.pageSize !== undefined) scope.vm.pageSize = newSize;
+                });
+
+                // Attendi che Angular aggiorni il DOM
+                setTimeout(function () {
+                    var newPages = getTotalPages();
+                    log('trySetAllOnOnePage dopo $apply: pagine=' + newPages);
+                    if (newPages <= 1) {
+                        resolve(true);
+                    } else {
+                        // Fallback: forza una nuova ricerca con pageSize nel query
+                        // (alcuni controller rileggono pageSize da vm.pager.pageSize)
+                        try {
+                            scope.$apply(function () {
+                                if (scope.vm.search) scope.vm.search();
+                                else if (scope.vm.cerca) scope.vm.cerca();
+                                else if (scope.vm.filter) scope.vm.filter();
+                            });
+                            setTimeout(function () {
+                                log('trySetAllOnOnePage dopo search: pagine=' + getTotalPages());
+                                resolve(getTotalPages() <= 1);
+                            }, 1200);
+                        } catch (e2) {
+                            resolve(false);
+                        }
+                    }
+                }, 1000);
+            } catch (e) {
+                log('trySetAllOnOnePage errore: ' + e);
+                resolve(false);
+            }
+        });
     }
 
     /* ─── DOM HELPERS ───────────────────────────────────────────── */
@@ -250,7 +302,7 @@
         p.id = panelId;
         p.innerHTML =
             '<div id="FEPlugin_TopRow">' +
-                '<span id="FEPlugin_Logo">&#128196; FE-Utility v0.94&#946;</span>' +
+                '<span id="FEPlugin_Logo">&#128196; FE-Utility v0.94&#947;</span>' +
                 '<button class="fepBtn fep-green"  id="btn_scaricaFE">&#11015; Scarica fatture</button>' +
                 '<button class="fepBtn fep-blue"   id="btn_migliora">&#128202; Fatture &#8594; Excel</button>' +
                 
@@ -309,23 +361,39 @@
 
     /* ─── GM DOWNLOAD HELPER ────────────────────────────────────── */
     /**
-     * Scarica un Blob come file.
-     * Usa GM_download (Tampermonkey/Greasemonkey) se disponibile per evitare
-     * il blocco popup del browser sui download multipli;
-     * altrimenti usa il classico trick anchor click.
+     * Scarica un Blob come file XLS.
+     *
+     * NOTA: GM_download non supporta blob: URL generati nel contesto della pagina
+     * (violazione cross-origin). Usiamo invece un data: URI (base64) che è
+     * completamente self-contained e funziona sia con che senza Tampermonkey.
+     * La coda _dlQueue serializza i download per evitare il blocco popup.
      */
+    var _dlQueue = [], _dlBusy = false;
+
     function gmDownload(filename, blob) {
-        var url = URL.createObjectURL(blob);
-        if (typeof GM_download === 'function') {
-            GM_download({ url: url, name: filename });
-            setTimeout(function () { URL.revokeObjectURL(url); }, 5000);
-        } else {
+        _dlQueue.push({ filename: filename, blob: blob });
+        if (!_dlBusy) _dlPump();
+    }
+
+    function _dlPump() {
+        if (_dlQueue.length === 0) { _dlBusy = false; return; }
+        _dlBusy = true;
+        var item = _dlQueue.shift();
+        var reader = new FileReader();
+        reader.onload = function () {
+            var dataUrl = reader.result; // "data:application/vnd.ms-excel;base64,..."
             var a = document.createElement('a');
-            a.href = url; a.download = filename;
+            a.href = dataUrl;
+            a.download = item.filename;
             a.style.display = 'none';
-            document.body.appendChild(a); a.click();
-            setTimeout(function () { a.remove(); URL.revokeObjectURL(url); }, 3000);
-        }
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(function () {
+                if (a.parentNode) a.parentNode.removeChild(a);
+                setTimeout(_dlPump, 600); // piccola pausa tra download successivi
+            }, 200);
+        };
+        reader.readAsDataURL(item.blob);
     }
 
 
@@ -357,19 +425,23 @@
         }
         if (_inCorso) return;
         setRunning(true);
-        setProgress(0, 'Raccolta link fatture (tutte le pagine)...');
+        setProgress(0, 'Tentativo caricamento massivo in pagina...');
 
-        // Tenta prima di portare tutto su una pagina
-        var pagineSingola = trySetAllOnOnePage();
-
-        // Attendi che il DOM si aggiorni se necessario
-        setTimeout(function () {
-            raccogliLinkTuttiPagine(1, getTotalPages(), [], function (links) {
-                if (_stop) { setRunning(false); return; }
-                setStatus('▶ ' + links.length + ' fatture trovate. Avvio download...');
-                scaricaFattura(links, 0);
-            });
-        }, pagineSingola ? 800 : 100);
+        // Tenta di portare tutto su una pagina (ora restituisce Promise)
+        trySetAllOnOnePage().then(function (tuttaInPagina) {
+            if (_stop) { setRunning(false); return; }
+            var delay = tuttaInPagina ? 800 : 100;
+            setProgress(5, tuttaInPagina
+                ? '✓ Caricamento massivo riuscito. Raccolta link...'
+                : 'Raccolta link da tutte le pagine...');
+            setTimeout(function () {
+                raccogliLinkTuttiPagine(1, getTotalPages(), [], function (links) {
+                    if (_stop) { setRunning(false); return; }
+                    setStatus('▶ ' + links.length + ' fatture trovate. Avvio download...');
+                    scaricaFattura(links, 0);
+                });
+            }, delay);
+        });
     }
 
     /**
@@ -400,11 +472,19 @@
      */
     function aspettaDettaglioFattura(resolve, ms) {
         ms = ms || 0;
-        if (ms > 6000) { resolve(false); return; }
+        if (ms > 10000) { resolve(false); return; }
+        // Pronto quando: c'è il pulsante download fattura OPPURE il panel-body con strong.ng-binding
         var btns = document.getElementsByClassName('btn btn-primary');
-        // Verifica che ci sia il pulsante Download file fattura
         for (var i = 0; i < btns.length; i++) {
-            if (btns[i].innerText.indexOf('Download file fattura') > -1) { resolve(true); return; }
+            var t = btns[i].innerText || '';
+            if (t.indexOf('Download file fattura') > -1 || t.indexOf('Scarica') > -1) {
+                resolve(true); return;
+            }
+        }
+        // Fallback: pagina dettaglio caricata se ci sono almeno 3 strong.ng-binding
+        var strongs = document.querySelectorAll('strong.ng-binding');
+        if (strongs.length >= 3 && window.location.hash.indexOf('/dettaglio/') > -1) {
+            resolve(true); return;
         }
         setTimeout(function () { aspettaDettaglioFattura(resolve, ms + 200); }, 200);
     }
@@ -452,19 +532,21 @@
                 var rifiutata = document.body.innerText.indexOf('rifiutata') > -1;
 
                 if (!rifiutata) {
-                    // Scarica file fattura (il primo btn con "Download file fattura")
+                    // Cerca il pulsante download principale (XML/P7M)
+                    // Il testo varia: "Download file fattura" / "Scarica file fattura" / simili
+                    var btnDownload = null, btnMeta = null;
                     for (var i = 0; i < btns.length; i++) {
-                        if (btns[i].innerText.indexOf('Download file fattura') > -1 &&
-                            btns[i].innerText.indexOf('meta') === -1) {
-                            btns[i].click(); break;
+                        var t = (btns[i].innerText || '').toLowerCase();
+                        if (!btnMeta && t.indexOf('meta') > -1) { btnMeta = btns[i]; }
+                        else if (!btnDownload && (t.indexOf('download') > -1 || t.indexOf('scarica') > -1) && t.indexOf('meta') === -1) {
+                            btnDownload = btns[i];
                         }
                     }
+                    if (btnDownload) { btnDownload.click(); }
                     // Scarica meta-dati (dopo breve pausa)
                     setTimeout(function () {
-                        for (var j = 0; j < btns.length; j++) {
-                            if (btns[j].innerText.indexOf('meta') > -1) { btns[j].click(); break; }
-                        }
-                    }, 300);
+                        if (btnMeta) { btnMeta.click(); }
+                    }, 400);
 
                     // Codifica stato
                     if (statoSdi.indexOf('accettata') > -1) codiceStato = 3;
@@ -1424,10 +1506,11 @@
     creaPanel();
     setStatus('Pronto. Scegli un\'azione dal menu.');
 
-    // Auto-aggiunta migliorie visive dopo il caricamento delle liste
+    // Tenta subito di espandere la paginazione su una pagina sola
     setTimeout(function () {
-        // Espandi automaticamente la paginazione se possibile
-        trySetAllOnOnePage();
-    }, 500);
+        trySetAllOnOnePage().then(function (ok) {
+            if (ok) setStatus('✓ Tutte le fatture caricate in pagina. Scegli un\'azione.');
+        });
+    }, 800);
 
-    log('FE-Utility v0.94 beta (userscript) avviato - ' + new Date().toLocaleString());
+    log('FE-Utility v0.94 gamma (userscript) avviato - ' + new Date().toLocaleString());

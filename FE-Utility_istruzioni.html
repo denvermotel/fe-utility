@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FE-Utility v0.94γ – Istruzioni</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',Arial,sans-serif;background:#f0f4f0;color:#1a1a1a;padding:20px}
+.wrap{max-width:900px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
+header{background:#1b3a2b;color:#a5d6a7;padding:24px 28px;border-radius:10px}
+header h1{font-size:22px;margin-bottom:4px}
+header p{font-size:13px;color:#80cbc4}
+.card{background:#fff;border-radius:8px;padding:22px 26px;box-shadow:0 2px 8px rgba(0,0,0,.07);border-left:4px solid #2e7d32}
+.card h2{font-size:16px;color:#1b3a2b;margin-bottom:14px}
+.steps{display:flex;flex-direction:column;gap:10px}
+.step{display:flex;gap:14px;align-items:flex-start}
+.num{background:#2e7d32;color:#fff;border-radius:50%;width:28px;height:28px;min-width:28px;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:13px;margin-top:1px}
+.txt{font-size:14px;line-height:1.6}
+.inst-link{display:inline-block;padding:10px 22px;background:#1b3a2b;color:#a5d6a7;border-radius:6px;font-size:14px;font-weight:bold;text-decoration:none;border:2px solid #2e7d32;margin:10px 0;box-shadow:0 3px 10px rgba(0,0,0,.18);transition:all .2s}
+.inst-link:hover{background:#2e7d32;color:#fff}
+.note{background:#fff8e1;border-left:4px solid #ffc107;padding:10px 14px;border-radius:4px;font-size:13px;margin:10px 0;line-height:1.6}
+.note-blue{background:#e3f2fd;border-left-color:#1565c0}
+.note-green{background:#e8f5e9;border-left-color:#2e7d32}
+.note-red{background:#fce4ec;border-left-color:#c62828}
+table{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px}
+table th{background:#e8f5e9;padding:8px 10px;border:1px solid #c8e6c9;text-align:left}
+table td{padding:8px 10px;border:1px solid #e0e0e0;vertical-align:top;line-height:1.5}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:bold;background:#c8e6c9;color:#1b5e20}
+.badge-warn{background:#fff3e0;color:#e65100}
+.badge-new{background:#e3f2fd;color:#1565c0}
+code{background:#f0f4f0;padding:2px 6px;border-radius:3px;font-family:monospace;font-size:12px}
+.bar-prev{background:#1b3a2b;border-radius:6px;padding:8px 14px;display:flex;align-items:center;gap:8px;flex-wrap:nowrap;overflow-x:auto;margin:12px 0}
+.bar-prev span.logo{color:#a5d6a7;font-weight:bold;font-size:12px;flex-shrink:0}
+.bpBtn{padding:5px 11px;border-radius:4px;font-size:11px;font-weight:bold;color:#fff;border:none;flex-shrink:0;cursor:default}
+.cl-block{border-bottom:1px solid #e8f5e9;padding:14px 0}
+.cl-block:last-child{border-bottom:none;padding-bottom:0}
+.cl-ver{font-weight:bold;color:#1b3a2b;font-size:14px}
+.cl-date{font-size:12px;color:#999;margin-left:8px}
+.cl-block ul{margin:8px 0 0 20px}
+.cl-block li{font-size:13px;margin-bottom:5px;line-height:1.6}
+.tFIX{display:inline-block;background:#ffcdd2;color:#b71c1c;border-radius:3px;font-size:10px;font-weight:bold;padding:1px 5px;margin-right:4px;vertical-align:middle}
+.tNEW{display:inline-block;background:#c8e6c9;color:#1b5e20;border-radius:3px;font-size:10px;font-weight:bold;padding:1px 5px;margin-right:4px;vertical-align:middle}
+.tDEL{display:inline-block;background:#ffe0b2;color:#e65100;border-radius:3px;font-size:10px;font-weight:bold;padding:1px 5px;margin-right:4px;vertical-align:middle}
+.tIMP{display:inline-block;background:#ede7f6;color:#4527a0;border-radius:3px;font-size:10px;font-weight:bold;padding:1px 5px;margin-right:4px;vertical-align:middle}
+.disclaimer{background:#f9fbe7;border:1px solid #c5e1a5;border-radius:8px;padding:18px 22px}
+.disclaimer p{font-size:13px;line-height:1.7;margin-bottom:10px}
+.disclaimer p:last-child{margin-bottom:0}
+footer{text-align:center;color:#aaa;font-size:12px;padding:16px 0 8px}
+a{color:#1565c0}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>&#128196; FE-Utility v0.94&#947;</h1>
+  <p>Userscript Tampermonkey/Greasemonkey per ivaservizi.agenziaentrate.gov.it</p>
+</header>
+
+<!-- INSTALLAZIONE -->
+<div class="card">
+  <h2>&#9881;&#65039; Installazione</h2>
+  <div class="steps">
+    <div class="step">
+      <div class="num">1</div>
+      <div class="txt">
+        Installa <b>Tampermonkey</b> nel browser:
+        <a href="https://chrome.google.com/webstore/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo" target="_blank">Chrome</a> &nbsp;|&nbsp;
+        <a href="https://addons.mozilla.org/it/firefox/addon/tampermonkey/" target="_blank">Firefox</a> &nbsp;|&nbsp;
+        <a href="https://microsoftedge.microsoft.com/addons/detail/tampermonkey/iikmkjmpaadaobahmlepeloendndfphd" target="_blank">Edge</a>
+      </div>
+    </div>
+    <div class="step">
+      <div class="num">2</div>
+      <div class="txt">
+        Clicca il pulsante qui sotto &mdash; Tampermonkey aprirà automaticamente la finestra di installazione:<br><br>
+        <a class="inst-link" href="https://raw.githubusercontent.com/denvermotel/fe-utility/refs/heads/main/FE-Utility.user.js">&#128196; Installa FE-Utility v0.94&#947;</a>
+        <div style="font-size:12px;color:#888;margin-top:4px">oppure copia e incolla direttamente il link nella barra indirizzi del browser</div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="num">3</div>
+      <div class="txt">Accedi su <a href="https://ivaservizi.agenziaentrate.gov.it" target="_blank">ivaservizi.agenziaentrate.gov.it</a>, naviga nella sezione desiderata (Fatture o Corrispettivi): la barra verde apparirà automaticamente in cima alla pagina.</div>
+    </div>
+  </div>
+  <div class="note note-blue" style="margin-top:14px">
+    &#8505;&#65039; Il link di installazione diretta:
+    <code>https://raw.githubusercontent.com/denvermotel/fe-utility/refs/heads/main/FE-Utility.user.js</code>
+  </div>
+</div>
+
+<!-- ANTEPRIMA BARRA -->
+<div class="card">
+  <h2>&#128444;&#65039; Anteprima barra strumenti</h2>
+  <div class="bar-prev">
+    <span class="logo">&#128196; FE-Utility v0.94&#947;</span>
+    <button class="bpBtn" style="background:#2e7d32">&#11015; Scarica fatture</button>
+    <button class="bpBtn" style="background:#1565c0">&#128202; Fatture &rarr; Excel</button>
+    <button class="bpBtn" style="background:#e65100">&#128200; Corrispettivi &rarr; Excel</button>
+    <button class="bpBtn" style="background:#37474f">&#128197; Date</button>
+    <span style="margin-left:auto;color:#a5d6a7;font-size:18px;cursor:default">&#10005;</span>
+  </div>
+  <p style="font-size:12px;color:#666;margin-top:4px">La barra usa <code>all:initial !important</code> per resistere ai CSS Bootstrap del portale. Riappare ad ogni navigazione. Per nasconderla clicca &#10005; — il bookmarklet la riattiva.</p>
+</div>
+
+<!-- FUNZIONALITÀ -->
+<div class="card">
+  <h2>&#10024; Funzionalit&agrave; v0.94&#947;</h2>
+  <table>
+    <tr><th>Pulsante</th><th>Sezione portale</th><th>Descrizione</th><th>Stato</th></tr>
+    <tr>
+      <td><b>&#11015; Scarica fatture</b></td>
+      <td>Fatture emesse / acquisti</td>
+      <td>
+        <b>Nuovo in &#947;:</b> tenta prima di caricare <b>tutte le fatture del periodo in un'unica pagina</b> (caricamento massivo) tramite hack dello scope Angular (<code>pager.pageSize</code> + <code>vm.search()</code>). Se riesce scarica tutti i file XML+metadati in un unico passaggio; altrimenti itera pagina per pagina come prima.<br><br>
+        Detection pulsanti download rafforzata: cerca per testo <i>e</i> per classe &mdash; funziona anche se il portale cambia etichette. Timeout aumentato a 10 secondi per connessioni lente.
+      </td>
+      <td><span class="badge">&#10003; Aggiornato</span></td>
+    </tr>
+    <tr>
+      <td><b>&#128202; Fatture &rarr; Excel</b></td>
+      <td>Fatture emesse / acquisti</td>
+      <td>
+        Naviga nel dettaglio di ogni fattura e genera un file <code>.xls</code> con una riga per aliquota IVA.<br><br>
+        <b>Colonne:</b> Data | N. Fattura | ID SDI | Tipo Documento | Cliente/Fornitore | P.IVA | Aliquota IVA | Imponibile | Imposta | Tot. Imponibile | Tot. IVA | Totale Fattura | Bollo Virtuale<br><br>
+        Download via <b>data: URI</b> con coda serializzata &mdash; elimina il blocco popup del browser sui file multipli.
+      </td>
+      <td><span class="badge">&#10003; OK</span></td>
+    </tr>
+    <tr>
+      <td><b>&#128200; Corrispettivi &rarr; Excel</b></td>
+      <td>Corrispettivi telematici</td>
+      <td>
+        Genera un file <code>.xls</code> per ogni matricola dispositivo con colonne dinamiche per aliquota IVA.<br><br>
+        <b>Colonne:</b> ID Invio | Data | Imponibile X% / IVA X% (per aliquota) | Tot. Imponibile | Tot. IVA | Resi (memo) | Annulli (memo) | Totale Corrispettivi
+      </td>
+      <td><span class="badge">&#10003; OK</span></td>
+    </tr>
+    <tr>
+      <td><b>&#128197; Date</b></td>
+      <td>Ovunque</td>
+      <td>
+        Selettore rapido per trimestre, mese o anno intero. La data finale viene automaticamente limitata a oggi per periodi in corso.<br><br>
+        Scorciatoie: <code>1</code>&ndash;<code>4</code> (numpad) = Trim. I&ndash;IV &nbsp;|&nbsp; <code>1</code>&ndash;<code>9</code> <code>0</code> <code>O</code> <code>P</code> = Gen&ndash;Dic
+      </td>
+      <td><span class="badge">&#10003; OK</span></td>
+    </tr>
+  </table>
+</div>
+
+<!-- CARICAMENTO MASSIVO -->
+<div class="card">
+  <h2>&#128196; Caricamento massivo in pagina <span class="badge-new" style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:bold;background:#e3f2fd;color:#1565c0;margin-left:6px">Nuovo v0.94&#947;</span></h2>
+  <p style="font-size:13px;line-height:1.7;margin-bottom:10px">
+    Lo script tenta automaticamente all'avvio di portare <b>tutte le fatture del periodo in una singola pagina</b>, eliminando la necessità di iterare pagina per pagina. Questo velocizza notevolmente sia lo scaricamento fatture che l'export Excel.
+  </p>
+  <p style="font-size:13px;line-height:1.7;margin-bottom:10px"><b>Come funziona:</b></p>
+  <ol style="font-size:13px;line-height:1.8;margin-left:20px">
+    <li>Accede allo scope Angular tramite <code>unsafeWindow.angular</code></li>
+    <li>Imposta <code>pager.pageSize = totalItems + 10</code> e <code>currentPage = 1</code></li>
+    <li>Forza il reload tramite <code>vm.search()</code> / <code>vm.cerca()</code></li>
+    <li>Se il portale ignora il pageSize, il fallback itera comunque su tutte le pagine</li>
+  </ol>
+  <div class="note note-green" style="margin-top:12px">
+    ✓ Se il caricamento massivo riesce, la barra mostra <b>"&#10003; Tutte le fatture caricate in pagina"</b> e la barra avanzamento mostra progress immediato.
+  </div>
+  <div class="note" style="margin-top:8px">
+    &#9888;&#65039; Il portale AE può imporre un limite server-side al pageSize. In quel caso il caricamento massivo viene ignorato e lo script itera automaticamente le pagine normalmente.
+  </div>
+</div>
+
+<!-- DOWNLOAD FIX -->
+<div class="card">
+  <h2>&#128190; Fix download file <span class="badge-new" style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:bold;background:#e3f2fd;color:#1565c0;margin-left:6px">Nuovo v0.94&#947;</span></h2>
+  <p style="font-size:13px;line-height:1.7;margin-bottom:12px">In v0.94&#946; i download XLS/Excel non funzionavano. Causa: <code>GM_download</code> non può accedere a <code>blob: URL</code> creati nel contesto della pagina (violazione cross-origin). Fix in v0.94&#947;:</p>
+  <table>
+    <tr><th>Problema</th><th>Soluzione v0.94&#947;</th></tr>
+    <tr>
+      <td><code>GM_download({url: blob:...})</code> &rarr; errore silenzioso</td>
+      <td>Conversione del Blob in <code>data: URI</code> tramite <code>FileReader.readAsDataURL()</code> &mdash; completamente self-contained, non richiede accesso esterno</td>
+    </tr>
+    <tr>
+      <td>Download multipli bloccati dal browser (popup blocker)</td>
+      <td>Coda serializzata <code>_dlQueue</code>: un download alla volta con 600ms di pausa tra l'uno e l'altro</td>
+    </tr>
+    <tr>
+      <td>Testo pulsante "Download file fattura" potenzialmente cambiato</td>
+      <td>Detection multi-pattern: cerca sia "download" che "scarica" (case-insensitive), con fallback sul rilevamento pagina dettaglio via <code>strong.ng-binding</code></td>
+    </tr>
+  </table>
+</div>
+
+<!-- STRUTTURA EXCEL FATTURE -->
+<div class="card">
+  <h2>&#128202; Struttura Excel fatture</h2>
+  <p style="font-size:13px;margin-bottom:8px">Una riga per aliquota IVA per fattura. Note di credito evidenziate in rosso. Nome file: <code>PARTITAIVA_emesse.xls</code></p>
+  <table style="font-size:11px">
+    <tr>
+      <th>Data</th><th>N. Fattura</th><th>ID SDI</th><th>Tipo Doc.</th>
+      <th>Cliente/Fornitore</th><th>P.IVA</th>
+      <th>Aliquota</th><th>Imponibile</th><th>Imposta</th>
+      <th>Tot. Imp.</th><th>Tot. IVA</th><th>Totale</th><th>Bollo</th>
+    </tr>
+    <tr>
+      <td>15/01/2026</td><td>1/A</td><td>19887650123</td><td>Fattura</td>
+      <td>Rossi Srl</td><td>07654320156</td>
+      <td>22.00%</td><td align="right">500,00</td><td align="right">110,00</td>
+      <td align="right"><b>500,00</b></td><td align="right"><b>110,00</b></td>
+      <td align="right"><b>610,00</b></td><td>No</td>
+    </tr>
+    <tr>
+      <td>20/01/2026</td><td>2/A</td><td>19887650456</td><td>Fattura</td>
+      <td>ASP Trapani</td><td>01117030815</td>
+      <td>N2</td><td align="right">12.085,24</td><td align="right">0,00</td>
+      <td align="right"><b>12.085,24</b></td><td align="right"><b>0,00</b></td>
+      <td align="right"><b>12.085,24</b></td><td>S&igrave;</td>
+    </tr>
+    <tr style="background:#e8f5e9;font-weight:bold">
+      <td colspan="7" align="right">TOTALI:</td>
+      <td align="right">12.585,24</td><td align="right">110,00</td>
+      <td></td><td></td><td align="right">12.695,24</td><td></td>
+    </tr>
+  </table>
+  <div class="note note-blue" style="margin-top:10px">
+    &#8505;&#65039; <b>Nome/P.IVA e Bollo</b> vengono letti dalla pagina lista (più affidabile). La <b>tabella IVA</b> (aliquota, imponibile, imposta) viene letta dal dettaglio.
+  </div>
+</div>
+
+<!-- STRUTTURA EXCEL CORRISPETTIVI -->
+<div class="card">
+  <h2>&#128200; Struttura Excel corrispettivi</h2>
+  <p style="font-size:13px;margin-bottom:8px">Una riga per giorno, ordinata per data crescente. Nome file: <code>PARTITAIVA_MATRICOLA.xls</code></p>
+  <table style="font-size:11px">
+    <tr>
+      <th>ID Invio</th><th>Data</th>
+      <th>Imp. 22%</th><th>IVA 22%</th>
+      <th>Imp. 10%</th><th>IVA 10%</th>
+      <th>Tot. Imp.</th><th>Tot. IVA</th>
+      <th>Resi (memo)</th><th>Annulli (memo)</th><th>Totale</th>
+    </tr>
+    <tr>
+      <td>88001234</td><td>01/01/2026</td>
+      <td align="right">2.000,00</td><td align="right">440,00</td>
+      <td align="right">1.500,00</td><td align="right">150,00</td>
+      <td align="right"><b>3.500,00</b></td><td align="right"><b>590,00</b></td>
+      <td align="right" style="color:#999">0,00</td><td align="right" style="color:#999">0,00</td>
+      <td align="right"><b>4.090,00</b></td>
+    </tr>
+  </table>
+</div>
+
+<!-- CHANGELOG -->
+<div class="card">
+  <h2>&#128203; Changelog</h2>
+
+  <div class="cl-block">
+    <span class="cl-ver">v0.94&#947; (gamma)</span><span class="cl-date">25 febbraio 2026</span>
+    <ul>
+      <li><span class="tNEW">NEW</span> <b>Caricamento massivo in pagina</b>: all'avvio tenta di portare tutte le fatture del periodo in un'unica pagina tramite hack Angular (<code>pager.pageSize</code> + <code>vm.search()</code>), eliminando la necessità di paginazione. Feedback visivo nella barra di stato.</li>
+      <li><span class="tFIX">FIX</span> <b>Download XLS non funzionante</b>: <code>GM_download</code> non supporta <code>blob: URL</code> cross-context. Sostituito con conversione <code>FileReader → data: URI</code> self-contained.</li>
+      <li><span class="tFIX">FIX</span> <b>Download multipli bloccati</b>: aggiunta coda serializzata <code>_dlQueue</code> con 600ms di pausa tra file consecutivi.</li>
+      <li><span class="tFIX">FIX</span> <b>Rilevamento pulsante download fattura</b>: detection multi-pattern (testo "download"/"scarica" case-insensitive + fallback su DOM dettaglio), timeout aumentato a 10 secondi.</li>
+      <li><span class="tNEW">NEW</span> Header userscript: aggiunte direttive <code>@downloadURL</code> e <code>@updateURL</code> con il raw URL corretto di GitHub, <code>@grant unsafeWindow</code>.</li>
+      <li><span class="tNEW">NEW</span> Licenza cambiata da MIT a <b>GPL v3</b>.</li>
+    </ul>
+  </div>
+
+  <div class="cl-block">
+    <span class="cl-ver">v0.94&#946; (beta)</span><span class="cl-date">25 febbraio 2026</span>
+    <ul>
+      <li><span class="tFIX">FIX</span> Colonne lista fatture: indici DOM corretti &mdash; Nome/P.IVA <code>[5]→[6]</code>, ID SDI <code>[8]→[9]</code></li>
+      <li><span class="tFIX">FIX</span> Parsing importi: <code>convN()</code> gestisce <code>&amp;nbsp;</code> e <code>€</code></li>
+      <li><span class="tFIX">FIX</span> Righe spurie IVA su fatture PA multi-voce</li>
+      <li><span class="tFIX">FIX</span> Bollo Virtuale: letto da lista invece che da dettaglio</li>
+      <li><span class="tNEW">NEW</span> Plugin rinominato FE-Utility; conversione da bookmarklet a userscript TM/GM</li>
+    </ul>
+  </div>
+
+  <div class="cl-block">
+    <span class="cl-ver">v0.93&#946;</span><span class="cl-date">23 febbraio 2026</span>
+    <ul>
+      <li><span class="tNEW">NEW</span> Funzione Fatture &rarr; Excel con navigazione automatica nel dettaglio</li>
+      <li><span class="tNEW">NEW</span> Inclusione fatture transfrontaliere nell'export emesse</li>
+      <li><span class="tDEL">RIM</span> Rimossi "Migliora tabella" e pulsante "Transfrontaliere" separato</li>
+    </ul>
+  </div>
+
+  <div class="cl-block">
+    <span class="cl-ver">v0.92&#946; &mdash; v0.90&#946;</span><span class="cl-date">23 febbraio 2026</span>
+    <ul>
+      <li><span class="tFIX">FIX</span> CSS isolation barra (<code>all:initial !important</code>); corrispettivi Resi/Annulli come memo</li>
+      <li><span class="tNEW">NEW</span> Prima release pubblica bookmarklet (Chrome, Firefox, Edge)</li>
+    </ul>
+  </div>
+</div>
+
+<!-- DISCLAIMER -->
+<div class="disclaimer">
+  <h2 style="font-size:15px;color:#1b3a2b;margin-bottom:12px">&#9888;&#65039; Disclaimer</h2>
+  <p>FE-Utility &egrave; un progetto open source sviluppato a scopo personale e didattico, distribuito sotto licenza <b>GNU General Public License v3.0</b>.</p>
+  <p><strong>Privacy:</strong> Questo strumento &egrave; progettato secondo il principio della privacy-by-design. Tutte le elaborazioni avvengono esclusivamente client-side (nel tuo browser). Nessun dato viene raccolto, salvato o trasmesso a server esterni.</p>
+  <p><strong>Responsabilit&agrave;:</strong> Il software &egrave; fornito &ldquo;cos&igrave; com&rsquo;&egrave;&rdquo; (as is), senza alcuna garanzia esplicita o implicita. Sebbene sia stato sviluppato con cura, l&rsquo;autore non si assume alcuna responsabilit&agrave; per eventuali errori, inesattezze o conseguenze derivanti dal suo utilizzo. L&rsquo;utente &egrave; l&rsquo;unico responsabile dell&rsquo;uso che ne viene fatto.</p>
+  <p><strong>Licenza GPL v3:</strong> Puoi usare, copiare e modificare liberamente. Versioni modificate devono essere rilasciate con la stessa licenza GPL v3. Non &egrave; consentito creare versioni proprietarie o commerciali senza condividere le modifiche.</p>
+</div>
+
+</div><!-- .wrap -->
+<footer>FE-Utility v0.94&#947; &mdash; 2026 &mdash; <a href="https://github.com/denvermotel/fe-utility">github.com/denvermotel/fe-utility</a> &mdash; GPL v3</footer>
+</body>
+</html>

@@ -5,6 +5,21 @@ Formato basato su [Keep a Changelog](https://keepachangelog.com/it/1.0.0/).
 
 ---
 
+## [0.94-gamma] — 2026-02-25
+
+### 🆕 Aggiunto
+- **Caricamento massivo in pagina**: all'avvio lo script tenta di portare tutte le fatture del periodo in un'unica pagina tramite hack Angular (`pager.pageSize` + `vm.search()`), eliminando la necessità di paginazione. Se riesce, il progress bar mostra "✓ Tutte le fatture caricate in pagina". In caso di limite server-side il fallback itera comunque tutte le pagine normalmente.
+- Header userscript: aggiunte direttive `@downloadURL` e `@updateURL` con il raw URL corretto (`refs/heads/main`), `@grant unsafeWindow` per l'accesso all'oggetto Angular reale
+- Licenza cambiata da MIT a **GPL v3**
+
+### 🔧 Corretto
+- **Download XLS non funzionante**: `GM_download` non supporta `blob: URL` generati nel contesto della pagina (violazione cross-origin). Sostituito con conversione `FileReader.readAsDataURL()` → `data: URI` completamente self-contained. Funziona con e senza Tampermonkey.
+- **Download multipli bloccati dal popup blocker**: aggiunta coda serializzata `_dlQueue` con 600ms di pausa tra download consecutivi.
+- **Rilevamento pulsante download fattura**: detection multi-pattern (testo "download"/"scarica" case-insensitive + fallback sul riconoscimento pagina dettaglio tramite `strong.ng-binding`). Timeout aumentato da 6s a 10s per connessioni lente.
+- `trySetAllOnOnePage` convertita da funzione sincrona a Promise per integrazione corretta con il flusso asincrono di `avviaDownloadFatture`
+
+---
+
 ## [0.94-beta] — 2026-02-25
 
 ### 🔧 Corretto
