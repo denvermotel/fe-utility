@@ -1,0 +1,818 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FE-Utility — Toolbox per Fatture e Corrispettivi</title>
+    <meta name="description" content="Userscript per il portale ivaservizi.agenziaentrate.gov.it — export Excel, download massivo fatture, selettore date rapido.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --green-900: #1a3a1c;
+            --green-800: #1b5e20;
+            --green-700: #2e7d32;
+            --green-600: #388e3c;
+            --green-500: #43a047;
+            --green-400: #66bb6a;
+            --green-300: #81c784;
+            --green-200: #a5d6a7;
+            --green-100: #c8e6c9;
+            --green-50: #e8f5e9;
+            --gray-900: #111827;
+            --gray-800: #1f2937;
+            --gray-700: #374151;
+            --gray-600: #4b5563;
+            --gray-500: #6b7280;
+            --gray-400: #9ca3af;
+            --gray-300: #d1d5db;
+            --gray-200: #e5e7eb;
+            --gray-100: #f3f4f6;
+            --gray-50: #f9fafb;
+            --white: #ffffff;
+            --danger: #ef5350;
+            --font-body: 'DM Sans', sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        html { scroll-behavior: smooth; }
+
+        body {
+            font-family: var(--font-body);
+            background: var(--gray-50);
+            color: var(--gray-800);
+            line-height: 1.65;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* ─── HERO ──────────────────────────────────────── */
+        .hero {
+            background: linear-gradient(135deg, var(--green-900) 0%, var(--green-700) 50%, var(--green-600) 100%);
+            color: var(--white);
+            padding: 80px 24px 60px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .hero::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -20%;
+            width: 600px;
+            height: 600px;
+            background: radial-gradient(circle, rgba(255,255,255,0.06) 0%, transparent 70%);
+            border-radius: 50%;
+        }
+
+        .hero::after {
+            content: '';
+            position: absolute;
+            bottom: -30%;
+            left: -10%;
+            width: 400px;
+            height: 400px;
+            background: radial-gradient(circle, rgba(255,255,255,0.04) 0%, transparent 70%);
+            border-radius: 50%;
+        }
+
+        .hero-inner {
+            max-width: 880px;
+            margin: 0 auto;
+            position: relative;
+            z-index: 1;
+        }
+
+        .hero-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(255,255,255,0.12);
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 100px;
+            padding: 6px 16px;
+            font-size: 13px;
+            font-weight: 500;
+            margin-bottom: 24px;
+            backdrop-filter: blur(4px);
+        }
+
+        .hero-badge .dot {
+            width: 8px;
+            height: 8px;
+            background: var(--green-400);
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+
+        .hero h1 {
+            font-size: clamp(2.2rem, 5vw, 3.2rem);
+            font-weight: 700;
+            line-height: 1.15;
+            margin-bottom: 16px;
+            letter-spacing: -0.02em;
+        }
+
+        .hero h1 span {
+            background: linear-gradient(90deg, var(--green-200), var(--green-100));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .hero p.subtitle {
+            font-size: 1.15rem;
+            color: var(--green-200);
+            max-width: 600px;
+            margin-bottom: 32px;
+            line-height: 1.6;
+        }
+
+        .hero-actions {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-family: var(--font-body);
+            font-size: 15px;
+            font-weight: 600;
+            text-decoration: none;
+            transition: all 0.2s;
+            cursor: pointer;
+            border: none;
+        }
+
+        .btn-primary {
+            background: var(--white);
+            color: var(--green-800);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        }
+
+        .btn-primary:hover {
+            background: var(--green-50);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+        }
+
+        .btn-secondary {
+            background: rgba(255,255,255,0.12);
+            color: var(--white);
+            border: 1px solid rgba(255,255,255,0.25);
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255,255,255,0.2);
+        }
+
+        /* ─── TOOLBAR PREVIEW ───────────────────────────── */
+        .toolbar-preview {
+            max-width: 880px;
+            margin: -24px auto 0;
+            padding: 0 24px;
+            position: relative;
+            z-index: 2;
+        }
+
+        .toolbar-mock {
+            background: var(--green-700);
+            border-radius: 10px;
+            padding: 10px 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            color: var(--white);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+            overflow-x: auto;
+            flex-wrap: nowrap;
+        }
+
+        .toolbar-mock .title {
+            font-weight: 700;
+            white-space: nowrap;
+            padding-right: 10px;
+            border-right: 1px solid rgba(255,255,255,0.25);
+            margin-right: 4px;
+        }
+
+        .toolbar-mock .mock-btn {
+            background: var(--green-600);
+            padding: 5px 12px;
+            border-radius: 4px;
+            white-space: nowrap;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .toolbar-mock .mock-select {
+            background: rgba(255,255,255,0.15);
+            border: 1px solid rgba(255,255,255,0.3);
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            color: var(--white);
+        }
+
+        .toolbar-mock .spacer { flex: 1; }
+
+        .toolbar-mock .mock-status {
+            font-size: 11px;
+            color: var(--green-200);
+            background: rgba(0,0,0,0.15);
+            padding: 3px 8px;
+            border-radius: 3px;
+        }
+
+        .toolbar-mock .mock-info {
+            width: 26px;
+            height: 26px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 4px;
+            background: rgba(255,255,255,0.1);
+            font-size: 14px;
+        }
+
+        .toolbar-mock .mock-close {
+            width: 26px;
+            height: 26px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 4px;
+            background: var(--danger);
+            font-weight: 700;
+            font-size: 13px;
+        }
+
+        .toolbar-caption {
+            text-align: center;
+            font-size: 13px;
+            color: var(--gray-500);
+            margin-top: 12px;
+        }
+
+        /* ─── CONTENT SECTIONS ──────────────────────────── */
+        .container {
+            max-width: 880px;
+            margin: 0 auto;
+            padding: 0 24px;
+        }
+
+        section {
+            padding: 64px 0;
+        }
+
+        section + section {
+            border-top: 1px solid var(--gray-200);
+        }
+
+        .section-label {
+            display: inline-block;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--green-600);
+            background: var(--green-50);
+            padding: 4px 12px;
+            border-radius: 100px;
+            margin-bottom: 16px;
+        }
+
+        h2 {
+            font-size: 1.75rem;
+            font-weight: 700;
+            color: var(--gray-900);
+            margin-bottom: 12px;
+            letter-spacing: -0.01em;
+        }
+
+        h3 {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: var(--gray-900);
+            margin-bottom: 8px;
+            margin-top: 32px;
+        }
+
+        h3:first-of-type { margin-top: 24px; }
+
+        p { margin-bottom: 16px; color: var(--gray-700); }
+
+        /* ─── INSTALL STEPS ─────────────────────────────── */
+        .steps {
+            display: grid;
+            gap: 20px;
+            margin-top: 24px;
+        }
+
+        .step {
+            display: flex;
+            gap: 16px;
+            background: var(--white);
+            border: 1px solid var(--gray-200);
+            border-radius: 12px;
+            padding: 20px;
+            transition: box-shadow 0.2s;
+        }
+
+        .step:hover {
+            box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+        }
+
+        .step-num {
+            flex-shrink: 0;
+            width: 36px;
+            height: 36px;
+            background: var(--green-600);
+            color: var(--white);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 15px;
+        }
+
+        .step-content h4 {
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--gray-900);
+            margin-bottom: 4px;
+        }
+
+        .step-content p {
+            font-size: 14px;
+            margin-bottom: 8px;
+        }
+
+        .step-content a {
+            color: var(--green-600);
+            font-weight: 500;
+        }
+
+        .step-content a:hover { text-decoration: none; }
+
+        /* ─── FEATURE CARDS ─────────────────────────────── */
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 16px;
+            margin-top: 24px;
+        }
+
+        .feature-card {
+            background: var(--white);
+            border: 1px solid var(--gray-200);
+            border-radius: 12px;
+            padding: 24px;
+            transition: all 0.2s;
+        }
+
+        .feature-card:hover {
+            border-color: var(--green-300);
+            box-shadow: 0 4px 16px rgba(46,125,50,0.08);
+        }
+
+        .feature-icon {
+            font-size: 28px;
+            margin-bottom: 12px;
+        }
+
+        .feature-card h4 {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--gray-900);
+            margin-bottom: 8px;
+        }
+
+        .feature-card p {
+            font-size: 14px;
+            color: var(--gray-600);
+            margin-bottom: 0;
+        }
+
+        /* ─── KEYBOARD SHORTCUTS TABLE ──────────────────── */
+        .shortcuts-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin-top: 16px;
+            background: var(--white);
+            border: 1px solid var(--gray-200);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        .shortcuts-table th {
+            background: var(--gray-100);
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--gray-600);
+            padding: 10px 16px;
+            text-align: left;
+        }
+
+        .shortcuts-table td {
+            padding: 10px 16px;
+            font-size: 14px;
+            border-top: 1px solid var(--gray-100);
+        }
+
+        kbd {
+            display: inline-block;
+            background: var(--gray-100);
+            border: 1px solid var(--gray-300);
+            border-radius: 4px;
+            padding: 2px 7px;
+            font-family: var(--font-mono);
+            font-size: 12px;
+            font-weight: 500;
+            box-shadow: 0 1px 0 var(--gray-300);
+            color: var(--gray-700);
+        }
+
+        /* ─── CODE BLOCKS ───────────────────────────────── */
+        pre {
+            background: var(--gray-900);
+            color: var(--green-300);
+            padding: 16px 20px;
+            border-radius: 10px;
+            overflow-x: auto;
+            font-family: var(--font-mono);
+            font-size: 13px;
+            line-height: 1.6;
+            margin: 16px 0;
+        }
+
+        code {
+            font-family: var(--font-mono);
+            font-size: 0.9em;
+            background: var(--gray-100);
+            padding: 2px 6px;
+            border-radius: 4px;
+            color: var(--green-800);
+        }
+
+        pre code {
+            background: none;
+            padding: 0;
+            color: inherit;
+        }
+
+        /* ─── CHANGELOG ─────────────────────────────────── */
+        .changelog-entry {
+            background: var(--white);
+            border: 1px solid var(--gray-200);
+            border-radius: 12px;
+            padding: 24px;
+            margin-top: 16px;
+        }
+
+        .changelog-version {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--green-700);
+            margin-bottom: 12px;
+        }
+
+        .changelog-tag {
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            background: var(--green-100);
+            color: var(--green-800);
+            padding: 2px 8px;
+            border-radius: 4px;
+        }
+
+        .changelog-tag.fix { background: #fef3c7; color: #92400e; }
+        .changelog-tag.new { background: #dbeafe; color: #1e40af; }
+
+        .changelog-list {
+            list-style: none;
+            padding: 0;
+        }
+
+        .changelog-list li {
+            padding: 6px 0;
+            font-size: 14px;
+            color: var(--gray-700);
+            display: flex;
+            gap: 8px;
+            align-items: baseline;
+        }
+
+        .changelog-list li::before {
+            content: '';
+            flex-shrink: 0;
+            width: 6px;
+            height: 6px;
+            background: var(--green-400);
+            border-radius: 50%;
+            margin-top: 7px;
+        }
+
+        /* ─── FOOTER ────────────────────────────────────── */
+        footer {
+            background: var(--gray-900);
+            color: var(--gray-400);
+            padding: 40px 24px;
+            text-align: center;
+            font-size: 14px;
+        }
+
+        footer a {
+            color: var(--green-400);
+            text-decoration: none;
+        }
+
+        footer a:hover { text-decoration: underline; }
+
+        .footer-badges {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+            margin-top: 16px;
+            flex-wrap: wrap;
+        }
+
+        .footer-badges img {
+            height: 22px;
+        }
+
+        /* ─── RESPONSIVE ────────────────────────────────── */
+        @media (max-width: 640px) {
+            .hero { padding: 48px 20px 40px; }
+            .toolbar-mock { font-size: 11px; gap: 4px; padding: 8px 10px; }
+            .features-grid { grid-template-columns: 1fr; }
+            .hero-actions { flex-direction: column; }
+            .btn { justify-content: center; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- ─── HERO ──────────────────────────────────────── -->
+    <header class="hero">
+        <div class="hero-inner">
+            <div class="hero-badge">
+                <span class="dot"></span>
+                v0.95 alpha — Ultimo aggiornamento: Febbraio 2026
+            </div>
+            <h1>📄 FE-Utility<br><span>Toolbox per Fatture e Corrispettivi</span></h1>
+            <p class="subtitle">
+                Userscript per Tampermonkey/Greasemonkey che aggiunge una barra degli strumenti al portale dell'Agenzia delle Entrate con funzioni di export Excel e download massivo.
+            </p>
+            <div class="hero-actions">
+                <a href="https://raw.githubusercontent.com/denvermotel/fe-utility/refs/heads/main/FE-Utility.user.js" class="btn btn-primary">
+                    ➤ Installa FE-Utility
+                </a>
+                <a href="https://github.com/denvermotel/fe-utility" class="btn btn-secondary" target="_blank" rel="noopener">
+                    GitHub Repository
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <!-- ─── TOOLBAR PREVIEW ───────────────────────────── -->
+    <div class="toolbar-preview">
+        <div class="toolbar-mock" role="img" aria-label="Anteprima della barra degli strumenti">
+            <span class="title">📄 FE-Utility v0.95α</span>
+            <span class="mock-btn">⬇ Scarica fatture</span>
+            <span class="mock-btn">📊 Fatture→Excel</span>
+            <span style="color:var(--green-200);font-size:11px;font-weight:600;">Date:</span>
+            <span class="mock-select">2026</span>
+            <span class="mock-select">I Trim (Gen-Mar)</span>
+            <span class="mock-btn">📅 Applica</span>
+            <span class="spacer"></span>
+            <span class="mock-status">✅ Pronto</span>
+            <span class="mock-info">ℹ️</span>
+            <span class="mock-close">✕</span>
+        </div>
+        <p class="toolbar-caption">Anteprima della barra — appare automaticamente su ivaservizi.agenziaentrate.gov.it</p>
+    </div>
+
+    <!-- ─── INSTALLAZIONE ─────────────────────────────── -->
+    <section id="installazione">
+        <div class="container">
+            <span class="section-label">Guida rapida</span>
+            <h2>Installazione</h2>
+            <p>Richiede un'estensione per userscript nel browser. L'installazione richiede meno di 2 minuti.</p>
+
+            <div class="steps">
+                <div class="step">
+                    <div class="step-num">1</div>
+                    <div class="step-content">
+                        <h4>Installa l'estensione del browser</h4>
+                        <p>Scegli l'estensione per il tuo browser:</p>
+                        <p>
+                            <a href="https://chrome.google.com/webstore/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo" target="_blank">Tampermonkey per Chrome/Edge</a> ·
+                            <a href="https://addons.mozilla.org/it/firefox/addon/tampermonkey/" target="_blank">Tampermonkey per Firefox</a> ·
+                            <a href="https://addons.mozilla.org/it/firefox/addon/greasemonkey/" target="_blank">Greasemonkey per Firefox</a>
+                        </p>
+                    </div>
+                </div>
+
+                <div class="step">
+                    <div class="step-num">2</div>
+                    <div class="step-content">
+                        <h4>Installa lo userscript</h4>
+                        <p>Clicca il pulsante qui sotto — Tampermonkey aprirà automaticamente la finestra di conferma:</p>
+                        <p>
+                            <a href="https://raw.githubusercontent.com/denvermotel/fe-utility/refs/heads/main/FE-Utility.user.js" class="btn btn-primary" style="display:inline-flex;font-size:14px;padding:10px 20px;">
+                                ➤ Installa FE-Utility.user.js
+                            </a>
+                        </p>
+                    </div>
+                </div>
+
+                <div class="step">
+                    <div class="step-num">3</div>
+                    <div class="step-content">
+                        <h4>Accedi al portale</h4>
+                        <p>Vai su <a href="https://ivaservizi.agenziaentrate.gov.it" target="_blank">ivaservizi.agenziaentrate.gov.it</a> — la barra verde apparirà automaticamente in cima alla pagina.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ─── FUNZIONALITÀ ──────────────────────────────── -->
+    <section id="funzionalita">
+        <div class="container">
+            <span class="section-label">Cosa fa</span>
+            <h2>Funzionalità</h2>
+            <p>Tutto avviene client-side — nessun dato viene inviato a server esterni.</p>
+
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">⬇️</div>
+                    <h4>Scarica fatture</h4>
+                    <p>Download massivo automatico dei file XML + metadati di tutte le fatture nel periodo selezionato. Naviga automaticamente su tutte le pagine della lista. Lo stato viene salvato per evitare ri-scaricamenti.</p>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-icon">📊</div>
+                    <h4>Fatture → Excel</h4>
+                    <p>Genera un file <code>.xls</code> con il dettaglio IVA: data, numero, tipo documento, ID SDI, cliente/fornitore, P.IVA, imponibile, imposta, bollo. Note di credito evidenziate in rosso. Una riga per aliquota nelle fatture multi-aliquota.</p>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-icon">📈</div>
+                    <h4>Corrispettivi → Excel</h4>
+                    <p>Genera un file <code>.xls</code> per ogni matricola dispositivo con colonne dinamiche per aliquota: imponibile, IVA, resi, annulli, totale corrispettivi.</p>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-icon">📅</div>
+                    <h4>Selettore date rapido</h4>
+                    <p>Selettore integrato per periodo (mese, trimestre, anno intero) con scorciatoie da tastiera. Si attiva automaticamente al caricamento della pagina — non richiede attivazione manuale.</p>
+                </div>
+            </div>
+
+            <h3>Scorciatoie da tastiera</h3>
+            <table class="shortcuts-table">
+                <thead>
+                    <tr><th>Tasto</th><th>Azione</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> <kbd>4</kbd> (numpad)</td><td>Trimestre I, II, III, IV</td></tr>
+                    <tr><td><kbd>1</kbd>–<kbd>9</kbd> (tastiera)</td><td>Gennaio – Settembre</td></tr>
+                    <tr><td><kbd>0</kbd></td><td>Ottobre</td></tr>
+                    <tr><td><kbd>O</kbd></td><td>Novembre</td></tr>
+                    <tr><td><kbd>P</kbd></td><td>Dicembre</td></tr>
+                </tbody>
+            </table>
+
+            <h3>Dettaglio colonne Excel fatture</h3>
+            <table class="shortcuts-table">
+                <thead>
+                    <tr><th>Colonna</th><th>Fonte</th><th>Nota</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td>Data, N. Fattura, Tipo Doc.</td><td>Lista</td><td></td></tr>
+                    <tr><td>ID SDI</td><td>Lista</td><td>Identificativo Sistema di Interscambio</td></tr>
+                    <tr><td>Cliente / Fornitore</td><td>Lista</td><td>Formato: <code>PIVA - Nome</code></td></tr>
+                    <tr><td>Partita IVA</td><td>Lista</td><td>Primo token prima di <code>-</code></td></tr>
+                    <tr><td>Imponibile</td><td>Lista</td><td></td></tr>
+                    <tr><td>IVA</td><td>Lista</td><td></td></tr>
+                    <tr><td>Totale</td><td>Calcolato</td><td>Imponibile + IVA</td></tr>
+                    <tr><td>Bollo Virtuale</td><td>Lista</td><td>Sì/No</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- ─── NOTE TECNICHE ─────────────────────────────── -->
+    <section id="note-tecniche">
+        <div class="container">
+            <span class="section-label">Per sviluppatori</span>
+            <h2>Note tecniche</h2>
+
+            <h3>Compatibilità browser</h3>
+            <table class="shortcuts-table">
+                <thead>
+                    <tr><th>Browser</th><th>Estensione</th><th>Stato</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td>Chrome / Chromium</td><td>Tampermonkey</td><td>✅ Testato</td></tr>
+                    <tr><td>Firefox</td><td>Tampermonkey</td><td>✅ Testato</td></tr>
+                    <tr><td>Firefox</td><td>Greasemonkey 4</td><td>✅ Compatibile</td></tr>
+                    <tr><td>Edge</td><td>Tampermonkey</td><td>✅ Compatibile</td></tr>
+                    <tr><td>Safari</td><td>Userscripts</td><td>⚠️ Non testato</td></tr>
+                </tbody>
+            </table>
+
+            <h3>Isolamento CSS</h3>
+            <p>La barra usa <code>all: initial !important</code> su tutti gli elementi per resistere ai CSS Bootstrap del portale e rimanere sempre visibile e correttamente formattata.</p>
+
+            <h3>Download files</h3>
+            <p>Lo script usa <code>GM_download</code> (quando disponibile) per evitare il blocco popup del browser sui download multipli. Il fallback al metodo <code>anchor.click()</code> è automatico.</p>
+
+            <h3>Privacy by design</h3>
+            <p>Tutte le elaborazioni avvengono esclusivamente client-side nel tuo browser. Nessun dato viene raccolto, salvato o trasmesso a server esterni.</p>
+        </div>
+    </section>
+
+    <!-- ─── CHANGELOG ─────────────────────────────────── -->
+    <section id="changelog">
+        <div class="container">
+            <span class="section-label">Storico</span>
+            <h2>Changelog</h2>
+
+            <div class="changelog-entry">
+                <div class="changelog-version">
+                    v0.95 alpha
+                    <span class="changelog-tag">Latest</span>
+                </div>
+                <ul class="changelog-list">
+                    <li><span class="changelog-tag fix">FIX</span> Download fatture ora funziona correttamente (issue #1)</li>
+                    <li><span class="changelog-tag fix">FIX</span> Paginazione completa — gestisce più di 50 fatture (issue #2)</li>
+                    <li><span class="changelog-tag fix">FIX</span> Selettore date sempre attivo senza attivazione manuale (issue #3)</li>
+                    <li><span class="changelog-tag new">NEW</span> Link istruzioni (ℹ️) nella barra, vicino alla X di chiusura</li>
+                    <li><span class="changelog-tag new">NEW</span> Pagina istruzioni su GitHub Pages</li>
+                    <li><span class="changelog-tag fix">FIX</span> Download Excel corretto con gestione errori migliorata</li>
+                </ul>
+            </div>
+
+            <div class="changelog-entry" style="opacity:0.7">
+                <div class="changelog-version">v0.94 gamma</div>
+                <ul class="changelog-list">
+                    <li>Versione iniziale pubblica</li>
+                    <li>Export fatture → Excel con dettaglio IVA e multi-aliquota</li>
+                    <li>Export corrispettivi → Excel per matricola</li>
+                    <li>Selettore date rapido con scorciatoie tastiera</li>
+                    <li>Download massivo XML + metadati</li>
+                </ul>
+            </div>
+        </div>
+    </section>
+
+    <!-- ─── FOOTER ────────────────────────────────────── -->
+    <footer>
+        <div class="container">
+            <p>
+                <strong>FE-Utility</strong> è un progetto open source distribuito sotto licenza <a href="https://www.gnu.org/licenses/gpl-3.0" target="_blank">GPL v3</a>.
+            </p>
+            <p style="margin-top:8px;font-size:13px;color:var(--gray-500);">
+                Il software è fornito "così com'è", senza garanzie. L'utente è l'unico responsabile dell'uso che ne viene fatto.
+            </p>
+            <div class="footer-badges">
+                <img src="https://img.shields.io/badge/versione-0.95%20alpha-green" alt="Versione">
+                <img src="https://img.shields.io/badge/licenza-GPL%20v3-blue" alt="Licenza">
+                <img src="https://img.shields.io/badge/Tampermonkey-compatibile-brightgreen" alt="Tampermonkey">
+                <img src="https://img.shields.io/badge/Greasemonkey-compatibile-orange" alt="Greasemonkey">
+            </div>
+            <p style="margin-top:20px;font-size:12px;">
+                <a href="https://github.com/denvermotel/fe-utility">Codice sorgente</a> ·
+                <a href="https://github.com/denvermotel/fe-utility/issues">Segnala un problema</a> ·
+                © 2025-2026 denvermotel
+            </p>
+        </div>
+    </footer>
+
+</body>
+</html>
