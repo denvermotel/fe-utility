@@ -1,33 +1,37 @@
 # Changelog
 
-Tutte le modifiche rilevanti a FE-Utility sono documentate in questo file.
-
 ## [0.95-alpha] — 2026-02-26
 
-### Risoluzione Issues
+### Fix
+- **#1 — Errore download fatture**: Corretto il conflitto di nomi `aspettaDettaglioFattura` (rinominata `aspettaDettaglioDownload` per il contesto download); ripristinata la navigazione via hash alle pagine dettaglio con riconoscimento pulsanti "Download file fattura" / "Scarica" e metadati
+- **#2 — Solo 50 fatture visualizzate**: Ripristinato `trySetAllOnOnePage()` che modifica `pager.pageSize` nello scope Angular per caricare tutte le fatture/corrispettivi in una sola pagina; fallback multi-pagina con `raccogliLinkTuttiPagine()` se il caricamento massivo non riesce
+- **#3 — Selettore date manuale**: Il selettore date ora si attiva automaticamente al caricamento della pagina (se i campi `#dal` e `#al` sono presenti) e si riattiva ad ogni cambio di route Angular
 
-- **FIX #1 — Errore download fatture:** Riscritto completamente il sistema di download. Ora gestisce correttamente il click sul pulsante dettaglio, il download da pagina dettaglio, e il ritorno alla lista. Aggiunto fallback robusto da `GM_download` ad `anchor.click()` con gestione errori.
-- **FIX #2 — Limite 50 fatture:** Implementata navigazione automatica di tutte le pagine della tabella. La funzione `getAllTableRows()` raccoglie tutte le righe prima di procedere al download o all'export, superando il limite di 50 record per pagina.
-- **FIX #3 — Selettore date sempre attivo:** Il selettore date è ora sempre visibile e attivo nella barra. Si applica automaticamente al caricamento della pagina quando i campi data sono presenti. Monitora i cambi di route Angular per riapplicarsi dopo la navigazione.
+### Nuovo
+- **Link istruzioni (ℹ️)** nella barra, posizionato a destra vicino alla X — apre la pagina GitHub Pages
+- **Pagina istruzioni** su GitHub Pages (`index.html`) con guida installazione, funzionalità, scorciatoie, changelog
+- **Tab riapertura**: Chiudendo la barra con ✕ appare un tab "📄 FE-Utility" per riaprirla senza ricaricare la pagina
+- **Metadata aggiornati**: `@homepageURL`, `@supportURL`, `@namespace` puntano a GitHub Pages
 
-### Nuove funzionalità
-
-- **Link istruzioni (ℹ️):** Aggiunto pulsante ℹ️ nella barra, posizionato a destra vicino alla X di chiusura. Apre la pagina istruzioni su GitHub Pages.
-- **Pagina GitHub Pages:** Creata pagina home/istruzioni completa su https://denvermotel.github.io/fe-utility/ con documentazione, guida installazione, e changelog.
-
-### Miglioramenti
-
-- Export Excel: gestione errori migliorata, formattazione numeri italiana corretta.
-- Paginazione: supporto multi-pagina per download e export.
-- Selettore date: auto-detect dei campi data del portale con strategie multiple (ng-model, placeholder, posizione).
-- UI: tab di riapertura barra dopo chiusura.
+### Ripristinato (dalla 0.94γ)
+- **Corrispettivi → Excel**: Sezione completa con navigazione dettaglio per aliquota, raggruppamento per matricola, colonne dinamiche
+- **Export Fatture → Excel a 3 fasi**: Raccolta lista → navigazione dettaglio IVA → generazione XLS multi-aliquota
+- **Download massivo via hash**: Navigazione `window.location.hash`, click pulsanti download/metadati, ritorno lista
+- **Download queue con data: URI**: Evita blocco cross-origin su blob: URL di `GM_download`
+- **Pulsante Stop**, **stato scaricamento in localStorage**, **supporto transfrontaliere**
 
 ## [0.94-gamma] — 2026-02-25
 
-- Versione iniziale pubblica.
-- Export fatture emesse/ricevute → Excel (.xls) con dettaglio IVA e multi-aliquota.
-- Export corrispettivi → Excel (.xls) per matricola dispositivo.
-- Selettore date rapido con scorciatoie da tastiera (numpad per trimestri, tastiera per mesi).
-- Download massivo XML + metadati con stato persistente in localStorage.
-- Barra degli strumenti con isolamento CSS (`all:initial !important`).
-- Compatibilità Tampermonkey e Greasemonkey.
+### Fix
+- Corrispettivi: risolto bug duplicati (3 istanze ng-repeat Angular), deduplicazione per href
+- Excel: tutti i valori calcolati in JS, nessuna formula Excel
+- Download XLS: usa data: URI (base64) via FileReader
+
+### Nuovo
+- Caricamento massivo in pagina singola (`trySetAllOnOnePage`)
+- Export corrispettivi con colonne dinamiche per aliquota e raggruppamento per matricola
+- Scorciatoie tastiera per selettore date
+- Barra di progresso con percentuale
+
+## [0.93-beta] — 2026-02-24
+- Prima versione pubblica con download fatture, export Excel, selettore date

@@ -1,1369 +1,1578 @@
 // ==UserScript==
-// @name         FE-Utility
-// @namespace    https://denvermotel.github.io/fe-utility/
-// @version      0.95-alpha
-// @description  Toolbox per il portale Fatture e Corrispettivi (ivaservizi.agenziaentrate.gov.it) — export Excel, download massivo fatture, selettore date rapido.
-// @author       denvermotel
-// @license      GPL-3.0-or-later
-// @match        https://ivaservizi.agenziaentrate.gov.it/*
-// @grant        GM_download
-// @grant        GM_xmlhttpRequest
-// @grant        GM_addStyle
-// @run-at       document-idle
-// @homepageURL  https://denvermotel.github.io/fe-utility/
-// @supportURL   https://github.com/denvermotel/fe-utility/issues
-// @downloadURL  https://raw.githubusercontent.com/denvermotel/fe-utility/refs/heads/main/FE-Utility.user.js
-// @updateURL    https://raw.githubusercontent.com/denvermotel/fe-utility/refs/heads/main/FE-Utility.user.js
+// @name           FE-Utility
+// @namespace      https://denvermotel.github.io/fe-utility/
+// @downloadURL    https://raw.githubusercontent.com/denvermotel/fe-utility/refs/heads/main/FE-Utility.user.js
+// @updateURL      https://raw.githubusercontent.com/denvermotel/fe-utility/refs/heads/main/FE-Utility.user.js
+// @version        0.95-alpha
+// @description    Toolbox per ivaservizi.agenziaentrate.gov.it: scarica fatture, export Excel fatture/corrispettivi, selettore date rapido, caricamento massivo in pagina
+// @author         denvermotel
+// @match          https://ivaservizi.agenziaentrate.gov.it/*
+// @icon           https://www.agenziaentrate.gov.it/portale/favicon.ico
+// @grant          GM_download
+// @grant          GM_info
+// @grant          unsafeWindow
+// @run-at         document-idle
+// @noframes
+// @license        GPL-3.0-or-later
+// @homepageURL    https://denvermotel.github.io/fe-utility/
+// @supportURL     https://github.com/denvermotel/fe-utility/issues
 // ==/UserScript==
+// FE-Utility — Toolbox per ivaservizi.agenziaentrate.gov.it
+// Copyright (C) 2026  denvermotel
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
+//
+// Source code: https://github.com/denvermotel/fe-utility
 
-/*
- * FE-Utility v0.95 alpha
- * Copyright (C) 2025-2026 denvermotel
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * CHANGELOG v0.95-alpha:
- *  - FIX: Download fatture ora funziona correttamente (issue #1)
- *  - FIX: Paginazione completa — gestisce più di 50 fatture (issue #2)
- *  - FIX: Selettore date sempre attivo senza attivazione manuale (issue #3)
- *  - NEW: Link istruzioni (ℹ️) nella barra, posizionato a destra vicino alla X
- *  - NEW: Download Excel corretto con gestione errori migliorata
- *  - IMPROVED: Robustezza generale del download e dell'export
- */
-
-(function () {
     'use strict';
 
-    /* ========================================================================
-     *  CONSTANTS
-     * ====================================================================== */
-    const VERSION = '0.95α';
-    const SCRIPT_NAME = 'FE-Utility';
-    const INSTRUCTIONS_URL = 'https://denvermotel.github.io/fe-utility/';
-    const BAR_ID = 'fe-utility-bar';
-    const STATUS_ID = 'fe-utility-status';
-    const DATE_PANEL_ID = 'fe-utility-date-panel';
+    /* ─── ANTI-DOPPIO AVVIO ─────────────────────────────────────── */
+    if (window._FEPlugin) {
+        var ex = document.getElementById('FEPlugin_Panel');
+        if (ex) { ex.style.display = ex.style.display === 'none' ? 'block' : 'none'; }
+        return;
+    }
+    window._FEPlugin = true;
 
-    // Colori tema
-    const THEME = {
-        barBg: '#2e7d32',
-        barText: '#fff',
-        btnBg: '#388e3c',
-        btnHover: '#43a047',
-        btnActive: '#1b5e20',
-        accent: '#a5d6a7',
-        danger: '#ef5350',
-        dangerHover: '#e53935',
-        statusBg: 'rgba(0,0,0,0.15)',
-    };
+    /* ─── COSTANTI ───────────────────────────────────────────────── */
+    var VERSION = '0.95\u03B1';
+    var INSTRUCTIONS_URL = 'https://denvermotel.github.io/fe-utility/';
 
-    // Struttura colonne lista fatture (DOM Angular)
-    const COL = {
-        TIPO_FATTURA: 0,
-        TIPO_DOCUMENTO: 1,
-        NUMERO_FATTURA: 2,
-        DATA_FATTURA: 3,
-        // 4,5 = Angular templates (ignorati)
-        CLIENTE_FORNITORE: 6,
-        IMPONIBILE: 7,
-        IVA: 8,
-        ID_SDI: 9,
-        STATO_CONSEGNA: 10,
-        // 11 = Angular template (ignorato)
-        DATA_CONSEGNA: 12,
-        BOLLO_VIRTUALE: 13,
-        BTN_DETTAGLIO: 14,
-    };
+    /* ─── UTILITY NUMERI ────────────────────────────────────────── */
+    var FmtNum = new Intl.NumberFormat('it-IT', { style: 'decimal', minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-    /* ========================================================================
-     *  UTILITY FUNCTIONS
-     * ====================================================================== */
-
-    /** Attende N millisecondi */
-    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-    /** Attende che un selettore appaia nel DOM */
-    function waitForSelector(sel, root = document, timeout = 15000) {
-        return new Promise((resolve, reject) => {
-            const el = root.querySelector(sel);
-            if (el) return resolve(el);
-            const observer = new MutationObserver(() => {
-                const found = root.querySelector(sel);
-                if (found) {
-                    observer.disconnect();
-                    resolve(found);
-                }
-            });
-            observer.observe(root, { childList: true, subtree: true });
-            setTimeout(() => {
-                observer.disconnect();
-                reject(new Error(`Timeout waiting for: ${sel}`));
-            }, timeout);
-        });
+    function convN(s) {
+        if (!s) return 0;
+        // rimuove €, &nbsp; (\u00A0), spazi, poi converte formato IT (punti=migliaia, virgola=decimale)
+        var clean = String(s)
+            .replace(/\u00A0/g, '')   // non-breaking space
+            .replace(/&nbsp;/g, '')
+            .replace(/€/g, '')
+            .replace(/\s/g, '')
+            .trim();
+        return Number(parseFloat(clean.replace(/\./g, '').replace(',', '.'))) || 0;
     }
 
-    /** Attende che tutte le righe della tabella siano caricate */
-    function waitForTableRows(timeout = 10000) {
-        return new Promise((resolve) => {
-            const check = () => {
-                const rows = document.querySelectorAll('table tbody tr');
-                if (rows.length > 0) return resolve(rows);
-                setTimeout(check, 300);
-            };
-            check();
-            setTimeout(() => resolve(document.querySelectorAll('table tbody tr')), timeout);
-        });
+    function fmtN(n) { return FmtNum.format(n); }
+
+    function somma(arr) { return arr.reduce(function (a, b) { return a + b; }, 0); }
+
+    /* ─── UTILITY STRING ────────────────────────────────────────── */
+    function ae(str, n) { return str + (n == 1 ? 'a' : 'e'); }
+    function ei(str, n) { return str + (n == 1 ? 'e' : 'i'); }
+
+    function pad2(n) { return String(n).padStart(2, '0'); }
+
+    /* ─── STORAGE (usa localStorage invece di chrome.storage) ───── */
+    var STORAGE_PREFIX = 'FEPlugin_';
+
+    function storageGet(key, def) {
+        try { var v = localStorage.getItem(STORAGE_PREFIX + key); return v !== null ? JSON.parse(v) : def; }
+        catch (e) { return def; }
     }
 
-    /** Parsing sicuro di un numero da testo italiano (1.234,56 → 1234.56) */
-    function parseItalianNumber(text) {
-        if (!text) return 0;
-        const cleaned = text.toString().trim().replace(/[^\d,.-]/g, '');
-        // Formato italiano: 1.234,56
-        const n = cleaned.replace(/\./g, '').replace(',', '.');
-        const val = parseFloat(n);
-        return isNaN(val) ? 0 : val;
+    function storageSet(key, val) {
+        try { localStorage.setItem(STORAGE_PREFIX + key, JSON.stringify(val)); } catch (e) { }
     }
 
-    /** Formatta un numero in formato italiano */
-    function formatItalianNumber(num) {
-        return num.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    }
+    /* ─── ANGULAR HELPERS ───────────────────────────────────────── */
+    function getAngular() { return window.angular; }
 
-    /** Estrae la Partita IVA dalla cella cliente/fornitore */
-    function extractPIVA(cellText) {
-        if (!cellText) return '';
-        const match = cellText.trim().match(/^(\d{11})/);
-        return match ? match[1] : cellText.split(' - ')[0].trim();
-    }
-
-    /** Estrae la denominazione dalla cella cliente/fornitore */
-    function extractDenominazione(cellText) {
-        if (!cellText) return '';
-        const parts = cellText.split(' - ');
-        return parts.length > 1 ? parts.slice(1).join(' - ').trim() : cellText.trim();
-    }
-
-    /** Determina se siamo nella sezione fatture emesse */
-    function isEmesse() {
-        const url = window.location.href.toLowerCase();
-        const heading = document.querySelector('h2, h3, .page-header, [class*="title"]');
-        const headingText = heading ? heading.textContent.toLowerCase() : '';
-        return url.includes('emesse') || url.includes('trasmesse') || headingText.includes('emesse') || headingText.includes('trasmesse');
-    }
-
-    /** Determina se siamo nella sezione corrispettivi */
-    function isCorrispettivi() {
-        const url = window.location.href.toLowerCase();
-        return url.includes('corrispettiv');
-    }
-
-    /** Ottiene la P.IVA dell'utente corrente dalla pagina */
-    function getUserPIVA() {
-        // Cerca nei vari posti dove il portale mostra la P.IVA
-        const selectors = [
-            '[data-ng-bind*="partitaIva"]',
-            '[ng-bind*="partitaIva"]',
-            '.partita-iva',
-            'span[class*="piva"]',
-        ];
-        for (const sel of selectors) {
-            const el = document.querySelector(sel);
-            if (el && el.textContent.trim()) {
-                const match = el.textContent.match(/\d{11}/);
-                if (match) return match[0];
-            }
+    /**
+     * Cerca lo scope AngularJS che contiene vm.pager.
+     * Funziona sia sulla pagina fatture che corrispettivi.
+     */
+    function getVmScope() {
+        if (!getAngular()) return null;
+        // Cerca prima dalla nav di paginazione
+        var nav = document.querySelector('nav[aria-label*="aginaz"]');
+        if (nav) {
+            var s = angular.element(nav).scope();
+            while (s) { if (s.vm && s.vm.pager) return s; s = s.$parent; }
         }
-        // Fallback: cerca nel testo della pagina
-        const bodyText = document.body.innerText;
-        const pivaMatch = bodyText.match(/P\.?\s*IVA[:\s]*(\d{11})/i);
-        if (pivaMatch) return pivaMatch[1];
-        // Fallback: URL
-        const urlMatch = window.location.href.match(/(\d{11})/);
-        if (urlMatch) return urlMatch[1];
-        return 'PIVA';
-    }
-
-    /** Scarica un file (blob) con nome dato, usando GM_download o fallback */
-    function downloadFile(blob, filename) {
-        const url = URL.createObjectURL(blob);
-        try {
-            if (typeof GM_download === 'function') {
-                GM_download({ url: url, name: filename, onerror: function() {
-                    // Fallback se GM_download fallisce
-                    downloadFallback(url, filename);
-                }});
-            } else {
-                downloadFallback(url, filename);
-            }
-        } catch (e) {
-            downloadFallback(url, filename);
+        // Fallback: cerca dalla prima riga ng-repeat
+        var row = document.querySelector('[data-ng-repeat*="vm.items"]');
+        if (row) {
+            var s2 = angular.element(row).scope();
+            while (s2) { if (s2.vm && s2.vm.pager) return s2; s2 = s2.$parent; }
         }
+        return null;
     }
 
-    function downloadFallback(url, filename) {
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        a.style.display = 'none';
-        document.body.appendChild(a);
-        a.click();
-        setTimeout(() => {
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-        }, 1000);
+    function getTotalPages() {
+        var scope = getVmScope();
+        if (scope && scope.vm.pager) return scope.vm.pager.totalPages || 1;
+        // Fallback DOM: conta i li numerati nella paginazione
+        var liPages = document.querySelectorAll('nav[aria-label*="aginaz"] li[data-ng-repeat]');
+        return liPages.length || 1;
     }
 
-    /** Crea un file XLS (HTML table) e lo scarica */
-    function downloadXLS(tableHtml, filename) {
-        const template = `
-<html xmlns:o="urn:schemas-microsoft-com:office:office"
-      xmlns:x="urn:schemas-microsoft-com:office:excel"
-      xmlns="http://www.w3.org/TR/REC-html40">
-<head>
-<meta charset="utf-8">
-<!--[if gte mso 9]>
-<xml>
-<x:ExcelWorkbook>
-<x:ExcelWorksheets>
-<x:ExcelWorksheet>
-<x:Name>Fatture</x:Name>
-<x:WorksheetOptions>
-<x:DisplayGridlines/>
-</x:WorksheetOptions>
-</x:ExcelWorksheet>
-</x:ExcelWorksheets>
-</x:ExcelWorkbook>
-</xml>
-<![endif]-->
-<style>
-  td, th { mso-number-format:"\\@"; }
-  .num { mso-number-format:"#,##0.00"; }
-  .rosso { color: red; }
-</style>
-</head>
-<body>
-${tableHtml}
-</body>
-</html>`;
-        const blob = new Blob([template], { type: 'application/vnd.ms-excel;charset=utf-8' });
-        downloadFile(blob, filename);
-    }
-
-    /* ========================================================================
-     *  PAGINATION HANDLER — Gestisce più di 50 fatture (issue #2)
-     * ====================================================================== */
-
-    /** Raccoglie TUTTE le righe navigando tutte le pagine della tabella */
-    async function getAllTableRows(statusCallback) {
-        let allRows = [];
-        let pageNum = 1;
-        let hasNextPage = true;
-
-        while (hasNextPage) {
-            if (statusCallback) statusCallback(`Pagina ${pageNum}...`);
-            await sleep(500);
-
-            const rows = document.querySelectorAll('table tbody tr');
-            rows.forEach((row) => {
-                allRows.push(row.cloneNode(true));
-            });
-
-            // Cerca il pulsante "pagina successiva"
-            const nextBtn = document.querySelector(
-                'a[data-ng-click*="next"],' +
-                'a[ng-click*="next"],' +
-                'li.next:not(.disabled) a,' +
-                '.pagination li:last-child:not(.disabled) a,' +
-                'a[aria-label="Next"]:not([disabled]),' +
-                'button[data-ng-click*="next"]:not([disabled]),' +
-                '[class*="paginat"] a[class*="next"]:not(.disabled),' +
-                'a.page-link[aria-label="Successivo"]'
-            );
-
-            // Controlla anche se c'è un indicatore di paginazione con numeri
-            const pageLinks = document.querySelectorAll(
-                '.pagination li a, [class*="paginat"] a[data-ng-click*="page"]'
-            );
-
-            if (nextBtn && !nextBtn.closest('li.disabled') && !nextBtn.disabled) {
-                nextBtn.click();
-                pageNum++;
-                // Attende il caricamento della nuova pagina
-                await sleep(1500);
-                await waitForTableRows(10000);
-            } else {
-                hasNextPage = false;
-            }
-        }
-
-        if (statusCallback) statusCallback(`${allRows.length} fatture totali trovate su ${pageNum} pagina/e`);
-        return allRows;
-    }
-
-    /* ========================================================================
-     *  DATE SELECTOR — Sempre attivo (issue #3)
-     * ====================================================================== */
-
-    function createDatePanel() {
-        const panel = document.createElement('div');
-        panel.id = DATE_PANEL_ID;
-        panel.style.cssText = `
-            all: initial !important;
-            display: flex !important;
-            align-items: center !important;
-            gap: 6px !important;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
-            font-size: 13px !important;
-            color: ${THEME.barText} !important;
-            margin: 0 8px !important;
-        `;
-
-        const currentYear = new Date().getFullYear();
-
-        // Select anno
-        const yearSelect = document.createElement('select');
-        yearSelect.id = 'fe-utility-year';
-        yearSelect.style.cssText = selectStyle();
-        for (let y = currentYear; y >= currentYear - 5; y--) {
-            const opt = document.createElement('option');
-            opt.value = y;
-            opt.textContent = y;
-            if (y === currentYear) opt.selected = true;
-            yearSelect.appendChild(opt);
-        }
-
-        // Select periodo
-        const periodSelect = document.createElement('select');
-        periodSelect.id = 'fe-utility-period';
-        periodSelect.style.cssText = selectStyle();
-
-        const periods = [
-            { value: 'Q1', label: 'I Trim (Gen-Mar)' },
-            { value: 'Q2', label: 'II Trim (Apr-Giu)' },
-            { value: 'Q3', label: 'III Trim (Lug-Set)' },
-            { value: 'Q4', label: 'IV Trim (Ott-Dic)' },
-            { value: '---', label: '───────────', disabled: true },
-            { value: '01', label: 'Gennaio' },
-            { value: '02', label: 'Febbraio' },
-            { value: '03', label: 'Marzo' },
-            { value: '04', label: 'Aprile' },
-            { value: '05', label: 'Maggio' },
-            { value: '06', label: 'Giugno' },
-            { value: '07', label: 'Luglio' },
-            { value: '08', label: 'Agosto' },
-            { value: '09', label: 'Settembre' },
-            { value: '10', label: 'Ottobre' },
-            { value: '11', label: 'Novembre' },
-            { value: '12', label: 'Dicembre' },
-            { value: '---2', label: '───────────', disabled: true },
-            { value: 'ANNO', label: 'Anno intero' },
-        ];
-
-        // Default al trimestre corrente
-        const currentMonth = new Date().getMonth(); // 0-based
-        const currentQuarter = Math.floor(currentMonth / 3) + 1;
-        const defaultPeriod = `Q${currentQuarter}`;
-
-        periods.forEach((p) => {
-            const opt = document.createElement('option');
-            opt.value = p.value;
-            opt.textContent = p.label;
-            if (p.disabled) opt.disabled = true;
-            if (p.value === defaultPeriod) opt.selected = true;
-            periodSelect.appendChild(opt);
-        });
-
-        const applyBtn = document.createElement('button');
-        applyBtn.textContent = '📅 Applica';
-        applyBtn.title = 'Applica il periodo selezionato ai campi data del portale';
-        applyBtn.style.cssText = buttonStyle();
-        applyBtn.addEventListener('click', () => applyDateSelection());
-
-        const label = document.createElement('span');
-        label.textContent = 'Date:';
-        label.style.cssText = `all:initial!important;color:${THEME.accent}!important;font-family:inherit!important;font-size:12px!important;font-weight:600!important;`;
-
-        panel.appendChild(label);
-        panel.appendChild(yearSelect);
-        panel.appendChild(periodSelect);
-        panel.appendChild(applyBtn);
-
-        return panel;
-    }
-
-    function selectStyle() {
-        return `
-            all: initial !important;
-            padding: 3px 6px !important;
-            border: 1px solid rgba(255,255,255,0.3) !important;
-            border-radius: 3px !important;
-            background: rgba(255,255,255,0.15) !important;
-            color: ${THEME.barText} !important;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
-            font-size: 12px !important;
-            cursor: pointer !important;
-            outline: none !important;
-        `;
-    }
-
-    function buttonStyle() {
-        return `
-            all: initial !important;
-            padding: 4px 10px !important;
-            border: 1px solid rgba(255,255,255,0.3) !important;
-            border-radius: 3px !important;
-            background: ${THEME.btnBg} !important;
-            color: ${THEME.barText} !important;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
-            font-size: 12px !important;
-            cursor: pointer !important;
-            font-weight: 500 !important;
-            white-space: nowrap !important;
-        `;
-    }
-
-    /** Calcola date dal/al per il periodo selezionato */
-    function getDateRange(year, period) {
-        let dal, al;
-        switch (period) {
-            case 'Q1': dal = `01/01/${year}`; al = `31/03/${year}`; break;
-            case 'Q2': dal = `01/04/${year}`; al = `30/06/${year}`; break;
-            case 'Q3': dal = `01/07/${year}`; al = `30/09/${year}`; break;
-            case 'Q4': dal = `01/10/${year}`; al = `31/12/${year}`; break;
-            case 'ANNO': dal = `01/01/${year}`; al = `31/12/${year}`; break;
-            default:
-                // Mese singolo
-                const m = parseInt(period);
-                const lastDay = new Date(year, m, 0).getDate();
-                dal = `01/${period}/${year}`;
-                al = `${String(lastDay).padStart(2, '0')}/${period}/${year}`;
-                break;
-        }
-        return { dal, al };
-    }
-
-    /** Applica le date selezionate ai campi del portale — SEMPRE ATTIVO (issue #3) */
-    function applyDateSelection() {
-        const yearSelect = document.getElementById('fe-utility-year');
-        const periodSelect = document.getElementById('fe-utility-period');
-        if (!yearSelect || !periodSelect) return;
-
-        const year = yearSelect.value;
-        const period = periodSelect.value;
-        if (period.startsWith('---')) return;
-
-        const { dal, al } = getDateRange(year, period);
-
-        // Trova i campi data nel portale (vari selettori possibili)
-        const dateInputSelectors = [
-            'input[data-ng-model*="dataDa"]',
-            'input[data-ng-model*="dataA"]',
-            'input[ng-model*="dataDa"]',
-            'input[ng-model*="dataA"]',
-            'input[data-ng-model*="dal"]',
-            'input[data-ng-model*="al"]',
-            'input[name*="data"]',
-            'input[id*="data"]',
-            'input[placeholder*="gg/mm/aaaa"]',
-            'input[type="text"][class*="data"]',
-            'input[type="text"][class*="date"]',
-        ];
-
-        const allInputs = document.querySelectorAll('input[type="text"]');
-        let inputDal = null, inputAl = null;
-
-        // Strategia 1: selettori specifici
-        for (const sel of dateInputSelectors) {
-            const inputs = document.querySelectorAll(sel);
-            inputs.forEach((inp) => {
-                const ngModel = inp.getAttribute('data-ng-model') || inp.getAttribute('ng-model') || inp.name || inp.id || '';
-                const lower = ngModel.toLowerCase();
-                if (lower.includes('da') || lower.includes('dal') || lower.includes('from') || lower.includes('inizio')) {
-                    inputDal = inp;
-                } else if (lower.includes('a') || lower.includes('al') || lower.includes('to') || lower.includes('fine')) {
-                    inputAl = inp;
-                }
-            });
-            if (inputDal && inputAl) break;
-        }
-
-        // Strategia 2: cerca per posizione (primo e secondo input date)
-        if (!inputDal || !inputAl) {
-            const dateInputs = [];
-            allInputs.forEach((inp) => {
-                const ph = (inp.placeholder || '').toLowerCase();
-                const val = (inp.value || '').trim();
-                if (ph.includes('gg') || ph.includes('dd') || ph.includes('data') ||
-                    /^\d{2}\/\d{2}\/\d{4}$/.test(val) || val === '') {
-                    const ngModel = (inp.getAttribute('data-ng-model') || inp.getAttribute('ng-model') || '').toLowerCase();
-                    if (ngModel.includes('data') || ngModel.includes('date') || ph.includes('gg') || ph.includes('data')) {
-                        dateInputs.push(inp);
-                    }
-                }
-            });
-            if (dateInputs.length >= 2) {
-                inputDal = inputDal || dateInputs[0];
-                inputAl = inputAl || dateInputs[1];
-            }
-        }
-
-        // Imposta i valori e triggera gli eventi Angular
-        if (inputDal) {
-            setAngularValue(inputDal, dal);
-        }
-        if (inputAl) {
-            setAngularValue(inputAl, al);
-        }
-
-        // Cerca e clicca il pulsante di ricerca/invio
-        setTimeout(() => {
-            const searchBtns = document.querySelectorAll(
-                'button[type="submit"], input[type="submit"], ' +
-                'button[data-ng-click*="cerca"], button[data-ng-click*="ricerca"], ' +
-                'button[ng-click*="cerca"], button[ng-click*="ricerca"], ' +
-                'a[data-ng-click*="cerca"], a[ng-click*="cerca"], ' +
-                'button[data-ng-click*="search"], button[class*="ricerca"], ' +
-                'button[class*="cerca"]'
-            );
-            if (searchBtns.length > 0) {
-                searchBtns[0].click();
-            }
-        }, 300);
-
-        setStatus(`Date impostate: ${dal} → ${al}`);
-    }
-
-    /** Imposta un valore in un input Angular, triggerando i digest */
-    function setAngularValue(input, value) {
-        // Imposta il valore nativo
-        const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-            window.HTMLInputElement.prototype, 'value'
-        ).set;
-        nativeInputValueSetter.call(input, value);
-
-        // Trigger eventi per Angular 1.x
-        input.dispatchEvent(new Event('input', { bubbles: true }));
-        input.dispatchEvent(new Event('change', { bubbles: true }));
-        input.dispatchEvent(new Event('blur', { bubbles: true }));
-
-        // Angular scope update
-        try {
-            const scope = window.angular && window.angular.element(input).scope();
-            if (scope) {
-                const ngModel = input.getAttribute('data-ng-model') || input.getAttribute('ng-model');
-                if (ngModel) {
-                    scope.$apply(() => {
-                        const parts = ngModel.split('.');
-                        let obj = scope;
-                        for (let i = 0; i < parts.length - 1; i++) {
-                            obj = obj[parts[i]];
-                        }
-                        obj[parts[parts.length - 1]] = value;
-                    });
-                }
-            }
-        } catch (e) {
-            // Angular non disponibile, i trigger DOM dovrebbero bastare
-        }
-    }
-
-    /** Keyboard shortcuts per il selettore date */
-    function setupDateKeyboard() {
-        document.addEventListener('keydown', (e) => {
-            // Non intercettare se si sta scrivendo in un input/textarea
-            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
-            // Non intercettare se c'è un modificatore
-            if (e.ctrlKey || e.altKey || e.metaKey) return;
-
-            const periodSelect = document.getElementById('fe-utility-period');
-            if (!periodSelect) return;
-
-            let newValue = null;
-
-            // Numpad per trimestri
-            if (e.code === 'Numpad1') newValue = 'Q1';
-            else if (e.code === 'Numpad2') newValue = 'Q2';
-            else if (e.code === 'Numpad3') newValue = 'Q3';
-            else if (e.code === 'Numpad4') newValue = 'Q4';
-            // Tastiera normale per mesi
-            else if (e.key === '1' && e.code !== 'Numpad1') newValue = '01';
-            else if (e.key === '2' && e.code !== 'Numpad2') newValue = '02';
-            else if (e.key === '3' && e.code !== 'Numpad3') newValue = '03';
-            else if (e.key === '4' && e.code !== 'Numpad4') newValue = '04';
-            else if (e.key === '5') newValue = '05';
-            else if (e.key === '6') newValue = '06';
-            else if (e.key === '7') newValue = '07';
-            else if (e.key === '8') newValue = '08';
-            else if (e.key === '9') newValue = '09';
-            else if (e.key === '0') newValue = '10';
-            else if (e.key.toLowerCase() === 'o') newValue = '11';
-            else if (e.key.toLowerCase() === 'p') newValue = '12';
-
-            if (newValue) {
-                periodSelect.value = newValue;
-                applyDateSelection();
-            }
-        });
-    }
-
-    /* ========================================================================
-     *  AUTO-APPLY DATE — Il selettore si attiva automaticamente (issue #3)
-     * ====================================================================== */
-
-    /** Osserva il DOM per applicare automaticamente le date quando i campi appaiono */
-    function setupAutoDateApply() {
-        // Applica immediatamente se i campi sono già presenti
-        setTimeout(() => {
-            const dateInputs = document.querySelectorAll('input[type="text"]');
-            let hasDateInputs = false;
-            dateInputs.forEach((inp) => {
-                const ph = (inp.placeholder || '').toLowerCase();
-                const ngModel = (inp.getAttribute('data-ng-model') || inp.getAttribute('ng-model') || '').toLowerCase();
-                if (ph.includes('gg') || ph.includes('data') || ngModel.includes('data')) {
-                    hasDateInputs = true;
-                }
-            });
-            if (hasDateInputs) {
-                applyDateSelection();
-            }
-        }, 1500);
-
-        // Osserva cambi di pagina (Angular route changes) per riapplicare
-        let lastUrl = window.location.href;
-        const urlObserver = setInterval(() => {
-            if (window.location.href !== lastUrl) {
-                lastUrl = window.location.href;
-                setTimeout(() => {
-                    applyDateSelection();
-                }, 2000);
-            }
-        }, 1000);
-    }
-
-    /* ========================================================================
-     *  DOWNLOAD FATTURE (issue #1 — fix completo)
-     * ====================================================================== */
-
-    async function scaricaFatture() {
-        setStatus('Avvio download fatture...', true);
-
-        try {
-            // Prima raccoglie tutte le righe (navigando le pagine se necessario)
-            const allRows = await getAllTableRows((msg) => setStatus(msg, true));
-
-            if (allRows.length === 0) {
-                setStatus('Nessuna fattura trovata nella lista.');
+    /**
+     * Cambia pagina usando lo scope Angular ($apply) oppure cliccando il link.
+     * Restituisce una Promise che si risolve quando la pagina è cambiata.
+     */
+    function setPage(n) {
+        return new Promise(function (resolve) {
+            var scope = getVmScope();
+            if (scope && scope.vm.setPage) {
+                scope.$apply(function () { scope.vm.setPage(n); });
+                setTimeout(resolve, 700);
                 return;
             }
-
-            setStatus(`Trovate ${allRows.length} fatture. Avvio download...`, true);
-            const downloaded = JSON.parse(localStorage.getItem('fe-utility-downloaded') || '{}');
-            let count = 0;
-            let skipped = 0;
-            let errors = 0;
-
-            for (let i = 0; i < allRows.length; i++) {
-                const row = allRows[i];
-                const cells = row.children;
-                if (!cells || cells.length < 10) continue;
-
-                const idSdi = cells[COL.ID_SDI]?.textContent?.trim();
-                if (!idSdi) continue;
-
-                // Controlla se già scaricata
-                if (downloaded[idSdi]) {
-                    skipped++;
-                    setStatus(`${i + 1}/${allRows.length} — SDI ${idSdi} già scaricata (${skipped} saltate)`, true);
-                    continue;
-                }
-
-                setStatus(`${i + 1}/${allRows.length} — Download SDI ${idSdi}...`, true);
-
-                try {
-                    // Trova il pulsante dettaglio nella riga originale della tabella
-                    // Dobbiamo navigare alla riga corrispondente nella tabella attuale
-                    await navigateToRowAndDownload(i, allRows.length, idSdi);
-
-                    // Segna come scaricata
-                    downloaded[idSdi] = Date.now();
-                    localStorage.setItem('fe-utility-downloaded', JSON.stringify(downloaded));
-                    count++;
-                } catch (err) {
-                    console.error(`FE-Utility: Errore download SDI ${idSdi}:`, err);
-                    errors++;
-                }
-
-                // Pausa tra i download per non sovraccaricare il server
-                await sleep(800);
-            }
-
-            setStatus(`Download completato: ${count} scaricate, ${skipped} saltate, ${errors} errori.`);
-        } catch (err) {
-            console.error('FE-Utility: Errore download fatture:', err);
-            setStatus(`Errore: ${err.message}`);
-        }
-    }
-
-    /** Naviga alla riga corretta e scarica la fattura */
-    async function navigateToRowAndDownload(targetIndex, totalRows, idSdi) {
-        // Calcola la pagina su cui si trova la riga
-        const rowsPerPage = getRowsPerPage();
-        const targetPage = Math.floor(targetIndex / rowsPerPage) + 1;
-
-        // Naviga alla pagina giusta
-        await navigateToPage(targetPage);
-        await sleep(500);
-
-        // Trova la riga corretta sulla pagina corrente
-        const pageIndex = targetIndex % rowsPerPage;
-        const currentRows = document.querySelectorAll('table tbody tr');
-
-        if (pageIndex >= currentRows.length) {
-            throw new Error(`Riga ${pageIndex} non trovata nella pagina ${targetPage}`);
-        }
-
-        const row = currentRows[pageIndex];
-        const cells = row.children;
-
-        // Verifica che sia la riga giusta tramite ID SDI
-        const currentSdi = cells[COL.ID_SDI]?.textContent?.trim();
-        let targetRow = row;
-
-        if (currentSdi !== idSdi) {
-            // Cerca la riga con l'ID SDI corretto
-            for (const r of currentRows) {
-                if (r.children[COL.ID_SDI]?.textContent?.trim() === idSdi) {
-                    targetRow = r;
-                    break;
+            // Fallback: clicca il link con il numero
+            var links = document.querySelectorAll('nav[aria-label*="aginaz"] a[data-ng-click*="setPage"]');
+            for (var i = 0; i < links.length; i++) {
+                if (links[i].textContent.trim() === String(n)) {
+                    links[i].click();
+                    setTimeout(resolve, 700);
+                    return;
                 }
             }
-        }
-
-        // Trova e clicca il pulsante dettaglio
-        const detailBtn = targetRow.querySelector(
-            'a[data-ng-click*="dettaglio"], a[ng-click*="dettaglio"], ' +
-            'button[data-ng-click*="dettaglio"], button[ng-click*="dettaglio"], ' +
-            'a[data-ng-click*="visualizza"], a[ng-click*="visualizza"], ' +
-            'td:last-child a, td:last-child button'
-        );
-
-        if (!detailBtn) {
-            // Fallback: cerca il link nella cella BTN_DETTAGLIO
-            const btnCell = targetRow.children[COL.BTN_DETTAGLIO];
-            const link = btnCell?.querySelector('a, button');
-            if (link) {
-                link.click();
-            } else {
-                throw new Error(`Pulsante dettaglio non trovato per SDI ${idSdi}`);
-            }
-        } else {
-            detailBtn.click();
-        }
-
-        // Attende il caricamento della pagina dettaglio
-        await sleep(2000);
-
-        // Cerca il link di download nella pagina dettaglio
-        await downloadFromDetail(idSdi);
-
-        // Torna alla lista
-        await goBackToList();
-        await sleep(1000);
+            resolve();
+        });
     }
 
-    /** Scarica XML e metadati dalla pagina di dettaglio */
-    async function downloadFromDetail(idSdi) {
-        // Cerca link di download (XML, metadati, p7m)
-        const downloadSelectors = [
-            'a[href*="download"]',
-            'a[data-ng-click*="download"]',
-            'a[ng-click*="download"]',
-            'a[data-ng-click*="scarica"]',
-            'a[ng-click*="scarica"]',
-            'button[data-ng-click*="download"]',
-            'button[ng-click*="download"]',
-            'button[data-ng-click*="scarica"]',
-            'a[href*=".xml"]',
-            'a[href*=".p7m"]',
-            'a[href*="fattura"]',
-            'a[title*="Scarica"]',
-            'a[title*="Download"]',
-        ];
+    /**
+     * Tenta di portare tutti gli elementi su una sola pagina modificando pageSize
+     * nello scope Angular. Restituisce true se riuscito.
+     */
+    /**
+     * Carica tutte le fatture/corrispettivi in una singola pagina
+     * aumentando pageSize nello scope Angular.
+     *
+     * Strategia 1: modifica pager.pageSize via $apply (funziona se Angular non ha
+     *   un limite server-side sul pageSize).
+     * Strategia 2: intercetta la risposta $http modificando i dati del pager dopo
+     *   che Angular li ha ricevuti (unsafeWindow → accesso all'oggetto Angular reale).
+     *
+     * Restituisce Promise che si risolve con true se il caricamento massivo è
+     * stato avviato, false altrimenti.
+     */
+    function trySetAllOnOnePage() {
+        return new Promise(function (resolve) {
+            try {
+                var win = (typeof unsafeWindow !== 'undefined') ? unsafeWindow : window;
+                var ng = win.angular;
+                if (!ng) { resolve(false); return; }
 
-        for (const sel of downloadSelectors) {
-            const links = document.querySelectorAll(sel);
-            for (const link of links) {
-                try {
-                    link.click();
-                    await sleep(500);
-                } catch (e) {
-                    // Ignora errori su singoli link
-                }
-            }
-        }
-    }
+                var scope = getVmScope();
+                if (!scope || !scope.vm || !scope.vm.pager) { resolve(false); return; }
 
-    /** Torna alla lista fatture */
-    async function goBackToList() {
-        const backBtn = document.querySelector(
-            'a[data-ng-click*="indietro"], a[ng-click*="indietro"], ' +
-            'button[data-ng-click*="indietro"], button[ng-click*="indietro"], ' +
-            'a[data-ng-click*="back"], a[ng-click*="back"], ' +
-            'a[data-ng-click*="torna"], a[ng-click*="torna"], ' +
-            'button[data-ng-click*="back"], button.btn-back, ' +
-            'a.btn-back, [class*="indietro"], [class*="back"]'
-        );
+                var pager = scope.vm.pager;
+                var total = pager.totalItems || (pager.totalPages * pager.pageSize) || 0;
+                if (pager.totalPages <= 1) { resolve(true); return; }
 
-        if (backBtn) {
-            backBtn.click();
-        } else {
-            window.history.back();
-        }
+                log('trySetAllOnOnePage: totalItems=' + total + ' pageSize=' + pager.pageSize);
 
-        await sleep(1500);
-        await waitForTableRows();
-    }
-
-    /** Determina quante righe ci sono per pagina */
-    function getRowsPerPage() {
-        const rows = document.querySelectorAll('table tbody tr');
-        return rows.length || 50;
-    }
-
-    /** Naviga a una pagina specifica della tabella */
-    async function navigateToPage(pageNum) {
-        const currentPage = getCurrentPage();
-        if (currentPage === pageNum) return;
-
-        // Cerca i link di paginazione
-        const pageLink = document.querySelector(
-            `.pagination a[data-ng-click*="${pageNum}"], ` +
-            `.pagination a[ng-click*="${pageNum}"], ` +
-            `.pagination li:nth-child(${pageNum + 1}) a`
-        );
-
-        if (pageLink) {
-            pageLink.click();
-            await sleep(1500);
-            await waitForTableRows();
-        }
-    }
-
-    /** Determina la pagina corrente */
-    function getCurrentPage() {
-        const active = document.querySelector('.pagination li.active a, .pagination .active');
-        if (active) return parseInt(active.textContent) || 1;
-        return 1;
-    }
-
-    /* ========================================================================
-     *  EXPORT FATTURE → EXCEL (issue #1 fix — download corretto)
-     * ====================================================================== */
-
-    async function exportFattureExcel() {
-        setStatus('Raccolta dati per Excel...', true);
-
-        try {
-            // Raccoglie tutte le righe (tutte le pagine — issue #2)
-            const allRows = await getAllTableRows((msg) => setStatus(msg, true));
-
-            if (allRows.length === 0) {
-                setStatus('Nessuna fattura trovata.');
-                return;
-            }
-
-            const sezioneEmesse = isEmesse();
-            const tipo = sezioneEmesse ? 'emesse' : 'ricevute';
-            const piva = getUserPIVA();
-
-            // Chiedi se includere transfrontaliere (solo per emesse)
-            let includiTransfrontaliere = false;
-            if (sezioneEmesse) {
-                includiTransfrontaliere = confirm(
-                    'Includere le fatture transfrontaliere nell\'export Excel?'
-                );
-            }
-
-            setStatus(`Elaborazione ${allRows.length} fatture...`, true);
-
-            // Raccoglie i dati dalle righe
-            const fattureData = [];
-            for (let i = 0; i < allRows.length; i++) {
-                const row = allRows[i];
-                const cells = row.children;
-                if (!cells || cells.length < 10) continue;
-
-                const tipoFattura = cells[COL.TIPO_FATTURA]?.textContent?.trim() || '';
-
-                // Filtra transfrontaliere se non richieste
-                if (!includiTransfrontaliere && tipoFattura.toLowerCase().includes('transfrontalier')) {
-                    continue;
-                }
-
-                const tipoDocumento = cells[COL.TIPO_DOCUMENTO]?.textContent?.trim() || '';
-                const numFattura = cells[COL.NUMERO_FATTURA]?.textContent?.trim() || '';
-                const dataFattura = cells[COL.DATA_FATTURA]?.textContent?.trim() || '';
-                const clienteFornitore = cells[COL.CLIENTE_FORNITORE]?.textContent?.trim() || '';
-                const imponibile = cells[COL.IMPONIBILE]?.textContent?.trim() || '';
-                const iva = cells[COL.IVA]?.textContent?.trim() || '';
-                const idSdi = cells[COL.ID_SDI]?.textContent?.trim() || '';
-                const bolloEl = cells[COL.BOLLO_VIRTUALE]?.querySelector('[data-ng-if], [ng-if]');
-                const bollo = bolloEl ? 'Sì' : 'No';
-
-                const pivaCliente = extractPIVA(clienteFornitore);
-                const denominazione = extractDenominazione(clienteFornitore);
-
-                // Determina se è nota di credito
-                const isNC = tipoDocumento.toUpperCase().includes('TD04') ||
-                             tipoDocumento.toLowerCase().includes('nota') ||
-                             tipoDocumento.toLowerCase().includes('credit');
-
-                fattureData.push({
-                    tipoFattura,
-                    tipoDocumento,
-                    numFattura,
-                    dataFattura,
-                    idSdi,
-                    denominazione,
-                    pivaCliente,
-                    imponibile: parseItalianNumber(imponibile),
-                    iva: parseItalianNumber(iva),
-                    bollo,
-                    isNC,
+                // Imposta pageSize al totale elementi (o 9999 se non noto)
+                var newSize = total > 0 ? total + 10 : 9999;
+                scope.$apply(function () {
+                    pager.pageSize = newSize;
+                    pager.currentPage = 1;
+                    if (scope.vm.setPage) scope.vm.setPage(1);
+                    // Alcuni controller espongono vm.pageSize direttamente
+                    if (scope.vm.pageSize !== undefined) scope.vm.pageSize = newSize;
                 });
 
-                setStatus(`Elaborazione: ${i + 1}/${allRows.length}`, true);
+                // Attendi che Angular aggiorni il DOM
+                setTimeout(function () {
+                    var newPages = getTotalPages();
+                    log('trySetAllOnOnePage dopo $apply: pagine=' + newPages);
+                    if (newPages <= 1) {
+                        resolve(true);
+                    } else {
+                        // Fallback: forza una nuova ricerca con pageSize nel query
+                        // (alcuni controller rileggono pageSize da vm.pager.pageSize)
+                        try {
+                            scope.$apply(function () {
+                                if (scope.vm.search) scope.vm.search();
+                                else if (scope.vm.cerca) scope.vm.cerca();
+                                else if (scope.vm.filter) scope.vm.filter();
+                            });
+                            setTimeout(function () {
+                                log('trySetAllOnOnePage dopo search: pagine=' + getTotalPages());
+                                resolve(getTotalPages() <= 1);
+                            }, 1200);
+                        } catch (e2) {
+                            resolve(false);
+                        }
+                    }
+                }, 1000);
+            } catch (e) {
+                log('trySetAllOnOnePage errore: ' + e);
+                resolve(false);
             }
+        });
+    }
 
-            // Genera tabella HTML per XLS
-            let html = '<table border="1">';
-            html += '<thead><tr>';
-            html += '<th>Data</th>';
-            html += '<th>N. Fattura</th>';
-            html += '<th>Tipo Doc.</th>';
-            html += '<th>ID SDI</th>';
-            html += `<th>${sezioneEmesse ? 'Cliente' : 'Fornitore'}</th>`;
-            html += '<th>P. IVA</th>';
-            html += '<th>Imponibile</th>';
-            html += '<th>IVA</th>';
-            html += '<th>Totale</th>';
-            html += '<th>Bollo Virtuale</th>';
-            html += '</tr></thead>';
-            html += '<tbody>';
+    /* ─── DOM HELPERS ───────────────────────────────────────────── */
+    function $(sel, ctx) { return (ctx || document).querySelector(sel); }
+    function $$(sel, ctx) { return Array.from((ctx || document).querySelectorAll(sel)); }
 
-            let totImponibile = 0, totIva = 0, totTotale = 0;
+    function creaEl(tag, id, parent, html, prima) {
+        var el = document.createElement(tag);
+        el.id = id; el.name = id;
+        var p = typeof parent === 'string' ? document.getElementById(parent) : parent;
+        if (prima && p) p.parentNode.insertBefore(el, p);
+        else if (p) p.appendChild(el);
+        if (html != null) el.innerHTML = html;
+        return el;
+    }
 
-            for (const f of fattureData) {
-                const totale = f.imponibile + f.iva;
-                totImponibile += f.imponibile;
-                totIva += f.iva;
-                totTotale += totale;
+    function rimuoviEl(id) {
+        var el = document.getElementById(id);
+        if (el) el.parentNode.removeChild(el);
+    }
 
-                const rowClass = f.isNC ? ' class="rosso"' : '';
-                html += `<tr${rowClass}>`;
-                html += `<td>${f.dataFattura}</td>`;
-                html += `<td>${f.numFattura}</td>`;
-                html += `<td>${f.tipoDocumento}</td>`;
-                html += `<td>${f.idSdi}</td>`;
-                html += `<td>${f.denominazione}</td>`;
-                html += `<td>${f.pivaCliente}</td>`;
-                html += `<td class="num">${formatItalianNumber(f.imponibile)}</td>`;
-                html += `<td class="num">${formatItalianNumber(f.iva)}</td>`;
-                html += `<td class="num">${formatItalianNumber(totale)}</td>`;
-                html += `<td>${f.bollo}</td>`;
-                html += '</tr>';
-            }
+    function ricercaNeiTag(tag, str) {
+        return Array.from(document.getElementsByTagName(tag)).some(function (el) {
+            return el.innerText.indexOf(str) > -1;
+        });
+    }
 
-            // Riga totale
-            html += '<tr style="font-weight:bold;background:#e8f5e9">';
-            html += '<td colspan="6" style="text-align:right">TOTALE</td>';
-            html += `<td class="num">${formatItalianNumber(totImponibile)}</td>`;
-            html += `<td class="num">${formatItalianNumber(totIva)}</td>`;
-            html += `<td class="num">${formatItalianNumber(totTotale)}</td>`;
-            html += '<td></td>';
-            html += '</tr>';
+    /* ─── UI DEL PANEL ──────────────────────────────────────────── */
+    var panelId = 'FEPlugin_Panel';
 
-            html += '</tbody></table>';
+    function creaPanel() {
+        if (document.getElementById(panelId)) return;
 
-            const filename = `${piva}_${tipo}.xls`;
-            downloadXLS(html, filename);
-            setStatus(`Export completato: ${filename} (${fattureData.length} fatture)`);
+        var stile = document.createElement('style');
+        // !important su tutto per battere Bootstrap e i CSS del portale
+        stile.textContent =
+            '#FEPlugin_Panel{' +
+            'all:initial!important;display:block!important;' +
+            'position:fixed!important;top:0!important;left:0!important;' +
+            'width:100vw!important;box-sizing:border-box!important;' +
+            'z-index:2147483647!important;' +
+            'background:#1b3a2b!important;' +
+            'border-bottom:2px solid #2e7d32!important;' +
+            'box-shadow:0 3px 12px rgba(0,0,0,.6)!important;' +
+            'font-family:Arial,Helvetica,sans-serif!important;' +
+            'font-size:12px!important;color:#e8f5e9!important;}' +
+            '#FEPlugin_TopRow{' +
+            'all:initial!important;' +
+            'display:flex!important;flex-direction:row!important;flex-wrap:nowrap!important;' +
+            'align-items:center!important;gap:5px!important;' +
+            'padding:5px 10px!important;width:100%!important;box-sizing:border-box!important;' +
+            'overflow-x:auto!important;}' +
+            '#FEPlugin_Logo{' +
+            'all:initial!important;' +
+            'font-family:Arial,sans-serif!important;font-size:13px!important;' +
+            'font-weight:bold!important;color:#a5d6a7!important;' +
+            'white-space:nowrap!important;flex-shrink:0!important;margin-right:4px!important;}' +
+            '#FEPlugin_BottomRow{' +
+            'all:initial!important;display:none!important;width:100%!important;' +
+            'box-sizing:border-box!important;padding:2px 10px 5px!important;}' +
+            '#FEPlugin_PBar{' +
+            'all:initial!important;display:inline-block!important;' +
+            'width:180px!important;height:8px!important;' +
+            'background:#263238!important;border-radius:4px!important;overflow:hidden!important;' +
+            'vertical-align:middle!important;margin-right:8px!important;}' +
+            '#FEPlugin_PFill{' +
+            'all:initial!important;display:block!important;' +
+            'height:100%!important;background:#43a047!important;width:0%!important;' +
+            'transition:width .4s!important;}' +
+            '#FEPlugin_Status{' +
+            'all:initial!important;display:inline!important;' +
+            'font-family:Arial,sans-serif!important;font-size:11px!important;' +
+            'color:#80cbc4!important;vertical-align:middle!important;}' +
+            '.fepBtn{' +
+            'all:initial!important;display:inline-block!important;' +
+            'padding:5px 10px!important;border:none!important;border-radius:4px!important;' +
+            'cursor:pointer!important;font-size:11px!important;font-weight:bold!important;' +
+            'white-space:nowrap!important;flex-shrink:0!important;' +
+            'font-family:Arial,sans-serif!important;line-height:1.4!important;' +
+            'transition:filter .15s!important;}' +
+            '.fepBtn:hover{filter:brightness(1.2)!important;}' +
+            '.fepBtn:disabled{opacity:.4!important;cursor:not-allowed!important;}' +
+            '.fep-green{background:#2e7d32!important;color:#fff!important;}' +
+            '.fep-blue{background:#1565c0!important;color:#fff!important;}' +
+            '.fep-orange{background:#e65100!important;color:#fff!important;}' +
+            '.fep-teal{background:#00695c!important;color:#fff!important;}' +
+            '.fep-red{background:#b71c1c!important;color:#fff!important;}' +
+            '.fep-grey{background:#37474f!important;color:#fff!important;}' +
+            '#FEPlugin_InfoLink{' +
+            'all:initial!important;display:inline-flex!important;align-items:center!important;' +
+            'justify-content:center!important;width:26px!important;height:26px!important;' +
+            'font-size:14px!important;text-decoration:none!important;cursor:pointer!important;' +
+            'border-radius:4px!important;background:rgba(255,255,255,0.1)!important;' +
+            'flex-shrink:0!important;transition:background .15s!important;margin-left:4px!important;}' +
+            '#FEPlugin_InfoLink:hover{background:rgba(255,255,255,0.25)!important;}' +
+            '#FEPlugin_DatePicker{background:#e8f5e9;border:1px solid #2e7d32;border-radius:6px;' +
+            'padding:10px;margin-top:8px;font-size:12px;}';
+        document.head.appendChild(stile);
 
-        } catch (err) {
-            console.error('FE-Utility: Errore export Excel:', err);
-            setStatus(`Errore export: ${err.message}`);
+        var p = document.createElement('div');
+        p.id = panelId;
+        p.innerHTML =
+            '<div id="FEPlugin_TopRow">' +
+                '<span id="FEPlugin_Logo">&#128196; FE-Utility v' + VERSION + '</span>' +
+                '<button class="fepBtn fep-green"  id="btn_scaricaFE">&#11015; Scarica fatture</button>' +
+                '<button class="fepBtn fep-blue"   id="btn_migliora">&#128202; Fatture &#8594; Excel</button>' +
+                
+                '<button class="fepBtn fep-orange" id="btn_corrispettivi">&#128200; Corrispettivi &#8594; Excel</button>' +
+                '<button class="fepBtn fep-grey"   id="btn_datePicker">&#128197; Date</button>' +
+                '<button class="fepBtn fep-red"    id="btn_stop" style="display:none!important">&#9209; Stop</button>' +
+                '<span style="all:initial!important;flex:1 1 auto!important;min-width:10px!important;"></span>' +
+                '<a id="FEPlugin_InfoLink" href="' + INSTRUCTIONS_URL + '" target="_blank" rel="noopener noreferrer" title="Istruzioni FE-Utility">&#8505;&#65039;</a>' +
+                '<button id="FEPlugin_X" style="all:initial;display:inline-flex;align-items:center;' +
+                    'justify-content:center;width:26px;height:26px;margin-left:4px;' +
+                    'background:#b71c1c;border:none;border-radius:4px;color:#fff;font-size:14px;' +
+                    'font-weight:bold;cursor:pointer;flex-shrink:0;line-height:1;" title="Chiudi">&#x2715;</button>' +
+            '</div>' +
+            '<div id="FEPlugin_BottomRow" style="display:none">' +
+                '<div id="FEPlugin_PBar"><div id="FEPlugin_PFill"></div></div>' +
+                '<span id="FEPlugin_Status"></span>' +
+            '</div>';
+
+        // Appende a <html> (non a <body>) per evitare che Bootstrap interferisca
+        document.documentElement.appendChild(p);
+
+        // Compensazione: padding-top dinamico sul body calcolato sull'altezza reale della barra
+        function aggiornaPadding() {
+            document.body.style.setProperty('padding-top', (p.offsetHeight || 40) + 'px', 'important');
+        }
+        aggiornaPadding();
+        var _padTimer = setInterval(aggiornaPadding, 600);
+
+        document.getElementById('FEPlugin_X').onclick = function () {
+            p.style.setProperty('display', 'none', 'important');
+            document.body.style.removeProperty('padding-top');
+            clearInterval(_padTimer);
+            // Crea tab per riaprire
+            var tab = document.createElement('div');
+            tab.id = 'FEPlugin_ReopenTab';
+            tab.style.cssText = 'all:initial!important;position:fixed!important;top:0!important;right:20px!important;' +
+                'background:#1b3a2b!important;color:#a5d6a7!important;padding:4px 12px!important;' +
+                'border-radius:0 0 6px 6px!important;font-family:Arial,sans-serif!important;' +
+                'font-size:12px!important;cursor:pointer!important;z-index:2147483647!important;' +
+                'box-shadow:0 2px 6px rgba(0,0,0,0.3)!important;font-weight:bold!important;';
+            tab.textContent = '\uD83D\uDCC4 FE-Utility';
+            tab.title = 'Riapri la barra FE-Utility';
+            tab.onclick = function () {
+                tab.remove();
+                p.style.setProperty('display', 'block', 'important');
+                aggiornaPadding();
+                _padTimer = setInterval(aggiornaPadding, 600);
+            };
+            document.documentElement.appendChild(tab);
+        };
+        document.getElementById('btn_scaricaFE').onclick    = avviaDownloadFatture;
+        document.getElementById('btn_migliora').onclick     = avviaExportFatture;
+        document.getElementById('btn_corrispettivi').onclick = avviaAnalisiCorrispettivi;
+        document.getElementById('btn_datePicker').onclick   = creaSelezionaDate;
+        document.getElementById('btn_stop').onclick = function () {
+            _stop = true; setStatus('&#9209; Interruzione in corso&#8230;');
+        };
+    }
+
+    function setProgress(pct, msg) {
+        var fill = document.getElementById('FEPlugin_PFill');
+        var row  = document.getElementById('FEPlugin_BottomRow');
+        if (!fill) return;
+        if (row) row.style.setProperty('display', 'block', 'important');
+        fill.style.setProperty('width', Math.min(100, pct) + '%', 'important');
+        if (msg != null) setStatus(msg);
+    }
+
+    function setStatus(msg) {
+        var el = document.getElementById('FEPlugin_Status');
+        if (el) el.textContent = msg;
+    }
+
+    function log(msg) { console.log('[FE-Utility]', msg); }
+
+    /* ─── GM DOWNLOAD HELPER ────────────────────────────────────── */
+    /**
+     * Scarica un Blob come file XLS.
+     *
+     * NOTA: GM_download non supporta blob: URL generati nel contesto della pagina
+     * (violazione cross-origin). Usiamo invece un data: URI (base64) che è
+     * completamente self-contained e funziona sia con che senza Tampermonkey.
+     * La coda _dlQueue serializza i download per evitare il blocco popup.
+     */
+    var _dlQueue = [], _dlBusy = false;
+
+    function gmDownload(filename, blob) {
+        _dlQueue.push({ filename: filename, blob: blob });
+        if (!_dlBusy) _dlPump();
+    }
+
+    function _dlPump() {
+        if (_dlQueue.length === 0) { _dlBusy = false; return; }
+        _dlBusy = true;
+        var item = _dlQueue.shift();
+        var reader = new FileReader();
+        reader.onload = function () {
+            var dataUrl = reader.result; // "data:application/vnd.ms-excel;base64,..."
+            var a = document.createElement('a');
+            a.href = dataUrl;
+            a.download = item.filename;
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(function () {
+                if (a.parentNode) a.parentNode.removeChild(a);
+                setTimeout(_dlPump, 600); // piccola pausa tra download successivi
+            }, 200);
+        };
+        reader.readAsDataURL(item.blob);
+    }
+
+
+    var _stop = false;
+    var _inCorso = false;
+
+    function setRunning(on) {
+        _inCorso = on;
+        _stop = false;
+        var stopBtn = document.getElementById('btn_stop');
+        if (stopBtn) stopBtn.style.display = on ? 'block' : 'none';
+        ['btn_scaricaFE', 'btn_migliora', 'btn_corrispettivi'].forEach(function (id) {
+            var el = document.getElementById(id);
+            if (el) el.disabled = on;
+        });
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       DOWNLOAD MASSIVO FATTURE
+    ═══════════════════════════════════════════════════════════════ */
+
+    var vFEScaricate = storageGet('FEScaricate', {});
+
+    function avviaDownloadFatture() {
+        var hash = window.location.hash;
+        if (hash.indexOf('/fatture/') === -1 && hash.indexOf('/transfrontaliere/') === -1) {
+            alert('Vai prima nella sezione "Fatture emesse" o "Fatture acquisti".');
+            return;
+        }
+        if (_inCorso) return;
+        setRunning(true);
+        setProgress(0, 'Tentativo caricamento massivo in pagina...');
+
+        // Tenta di portare tutto su una pagina (ora restituisce Promise)
+        trySetAllOnOnePage().then(function (tuttaInPagina) {
+            if (_stop) { setRunning(false); return; }
+            var delay = tuttaInPagina ? 800 : 100;
+            setProgress(5, tuttaInPagina
+                ? '✓ Caricamento massivo riuscito. Raccolta link...'
+                : 'Raccolta link da tutte le pagine...');
+            setTimeout(function () {
+                raccogliLinkTuttiPagine(1, getTotalPages(), [], function (links) {
+                    if (_stop) { setRunning(false); return; }
+                    setStatus('▶ ' + links.length + ' fatture trovate. Avvio download...');
+                    scaricaFattura(links, 0);
+                });
+            }, delay);
+        });
+    }
+
+    /**
+     * Raccoglie ricorsivamente i pulsanti "Dettaglio" da tutte le pagine.
+     */
+    function raccogliLinkTuttiPagine(pagina, totPagine, links, callback) {
+        if (_stop) { callback(links); return; }
+
+        // Legge i pulsanti della pagina corrente
+        var btns = document.querySelectorAll('a.btn.btn-primary.btn-xs.ng-scope');
+        btns.forEach(function (b) { links.push(b.href || b.getAttribute('href') || b); });
+
+        setProgress(pagina / totPagine * 20, 'Raccolta pagina ' + pagina + '/' + totPagine);
+
+        if (pagina >= totPagine) {
+            // Torna alla pagina 1 prima di iniziare lo scaricamento
+            setPage(1).then(function () { callback(links); });
+        } else {
+            setPage(pagina + 1).then(function () {
+                raccogliLinkTuttiPagine(pagina + 1, totPagine, links, callback);
+            });
         }
     }
 
-    /* ========================================================================
-     *  EXPORT CORRISPETTIVI → EXCEL
-     * ====================================================================== */
+    /**
+     * Aspetta che la pagina di dettaglio fattura sia caricata (per download).
+     * Il dettaglio è pronto quando ci sono almeno 3 btn-primary (logout + download + meta).
+     */
+    function aspettaDettaglioDownload(resolve, ms) {
+        ms = ms || 0;
+        if (ms > 10000) { resolve(false); return; }
+        // Pronto quando: c'è il pulsante download fattura OPPURE il panel-body con strong.ng-binding
+        var btns = document.getElementsByClassName('btn btn-primary');
+        for (var i = 0; i < btns.length; i++) {
+            var t = btns[i].innerText || '';
+            if (t.indexOf('Download file fattura') > -1 || t.indexOf('Scarica') > -1) {
+                resolve(true); return;
+            }
+        }
+        // Fallback: pagina dettaglio caricata se ci sono almeno 3 strong.ng-binding
+        var strongs = document.querySelectorAll('strong.ng-binding');
+        if (strongs.length >= 3 && window.location.hash.indexOf('/dettaglio/') > -1) {
+            resolve(true); return;
+        }
+        setTimeout(function () { aspettaDettaglioDownload(resolve, ms + 200); }, 200);
+    }
 
-    async function exportCorrispettiviExcel() {
-        setStatus('Raccolta dati corrispettivi...', true);
+    function scaricaFattura(links, idx) {
+        if (_stop || idx >= links.length) {
+            storageSet('FEScaricate', vFEScaricate);
+            setRunning(false);
+            if (!_stop) setProgress(100, '✅ Completato! ' + idx + ' fatture elaborate.');
+            var prow = document.getElementById('FEPlugin_BottomRow'); if (prow) setTimeout(function () { prow.style.setProperty('display','none','important'); }, 3000);
+            return;
+        }
 
-        try {
-            const allRows = await getAllTableRows((msg) => setStatus(msg, true));
+        var pct = 20 + (idx / links.length * 80);
+        setProgress(pct, 'Fattura ' + (idx + 1) + '/' + links.length);
 
-            if (allRows.length === 0) {
-                setStatus('Nessun corrispettivo trovato.');
+        // Naviga al dettaglio cliccando il link
+        var link = links[idx];
+        if (typeof link === 'string') {
+            window.location.hash = link.replace(/^[^#]*#/, '#');
+        } else if (link.click) {
+            link.click();
+        }
+
+        new Promise(function (res) { aspettaDettaglioDownload(res); }).then(function (caricato) {
+            if (!caricato) {
+                log('Timeout dettaglio fattura #' + idx + ', salto.');
+                tornaAllaLista(function () { scaricaFattura(links, idx + 1); });
                 return;
             }
 
-            const piva = getUserPIVA();
-            setStatus(`Elaborazione ${allRows.length} corrispettivi...`, true);
+            var btns = document.getElementsByClassName('btn btn-primary');
+            var IDSDI = '', statoSdi = '', codiceStato = 1;
 
-            // Raggruppa per matricola dispositivo
-            const byMatricola = {};
-            const aliquoteSet = new Set();
-
-            for (let i = 0; i < allRows.length; i++) {
-                const row = allRows[i];
-                const cells = row.children;
-                if (!cells || cells.length < 3) continue;
-
-                const idInvio = cells[0]?.textContent?.trim() || '';
-                const data = cells[1]?.textContent?.trim() || '';
-                const matricola = cells[2]?.textContent?.trim() || 'UNKNOWN';
-
-                if (!byMatricola[matricola]) byMatricola[matricola] = [];
-
-                // Estrai aliquote (le colonne dinamiche dipendono dal layout)
-                const entry = { idInvio, data };
-
-                // Cerca colonne imponibile/IVA
-                for (let c = 3; c < cells.length; c++) {
-                    const header = document.querySelector(`table thead th:nth-child(${c + 1})`);
-                    const headerText = header?.textContent?.trim() || `Col${c}`;
-                    const value = parseItalianNumber(cells[c]?.textContent);
-
-                    if (headerText.toLowerCase().includes('imponibile') || headerText.match(/\d+%/)) {
-                        const aliqMatch = headerText.match(/(\d+[,.]?\d*%|N\d+)/);
-                        if (aliqMatch) {
-                            const aliq = aliqMatch[1];
-                            aliquoteSet.add(aliq);
-                            entry[`imp_${aliq}`] = value;
-                        }
-                    } else if (headerText.toLowerCase().includes('iva')) {
-                        const aliqMatch = headerText.match(/(\d+[,.]?\d*%|N\d+)/);
-                        if (aliqMatch) {
-                            entry[`iva_${aliqMatch[1]}`] = value;
-                        }
-                    } else if (headerText.toLowerCase().includes('resi')) {
-                        entry.resi = cells[c]?.textContent?.trim() || '';
-                    } else if (headerText.toLowerCase().includes('annull')) {
-                        entry.annulli = cells[c]?.textContent?.trim() || '';
-                    } else if (headerText.toLowerCase().includes('totale')) {
-                        entry.totale = value;
-                    }
+            try {
+                // Panel-body: prima <p> → children[0]=IDSDI, children[1]=stato SDI
+                var pb = document.querySelector('.panel-body');
+                if (pb) {
+                    var primaP = pb.children[0];
+                    var strongs = primaP ? primaP.querySelectorAll('strong.ng-binding') : [];
+                    IDSDI = strongs[0] ? strongs[0].innerText.trim() : '';
+                    statoSdi = strongs[1] ? strongs[1].innerText.trim() : '';
                 }
 
-                byMatricola[matricola].push(entry);
+                var rifiutata = document.body.innerText.indexOf('rifiutata') > -1;
+
+                if (!rifiutata) {
+                    // Cerca il pulsante download principale (XML/P7M)
+                    // Il testo varia: "Download file fattura" / "Scarica file fattura" / simili
+                    var btnDownload = null, btnMeta = null;
+                    for (var i = 0; i < btns.length; i++) {
+                        var t = (btns[i].innerText || '').toLowerCase();
+                        if (!btnMeta && t.indexOf('meta') > -1) { btnMeta = btns[i]; }
+                        else if (!btnDownload && (t.indexOf('download') > -1 || t.indexOf('scarica') > -1) && t.indexOf('meta') === -1) {
+                            btnDownload = btns[i];
+                        }
+                    }
+                    if (btnDownload) { btnDownload.click(); }
+                    // Scarica meta-dati (dopo breve pausa)
+                    setTimeout(function () {
+                        if (btnMeta) { btnMeta.click(); }
+                    }, 400);
+
+                    // Codifica stato
+                    if (statoSdi.indexOf('accettata') > -1) codiceStato = 3;
+                    else if (statoSdi.indexOf('Decorrenza') > -1 || statoSdi.indexOf('decorrenza') > -1) codiceStato = -3;
+                    else if (statoSdi === 'Non consegnata') codiceStato = -1;
+                    else if (document.body.innerText.indexOf('in attesa') > -1) codiceStato = 2;
+                } else {
+                    codiceStato = -2;
+                }
+
+                if (IDSDI) vFEScaricate[IDSDI] = { Stato: codiceStato, DataScaricamento: Date.now() };
+
+            } catch (e) { log('Errore lettura dati fattura: ' + e); }
+
+            setTimeout(function () {
+                tornaAllaLista(function () { scaricaFattura(links, idx + 1); });
+            }, 500);
+        });
+    }
+
+    function tornaAllaLista(callback) {
+        // Usa vm.backtoLista() se disponibile, altrimenti fa-chevron-left
+        var chevron = document.querySelector('.fa-chevron-left');
+        if (chevron && chevron.parentNode) {
+            chevron.parentNode.click();
+            setTimeout(callback, 600);
+            return;
+        }
+        // Fallback Angular scope
+        var scope = getVmScope();
+        if (scope && scope.vm.backtoLista) {
+            scope.$apply(function () { scope.vm.backtoLista(); });
+            setTimeout(callback, 600);
+        } else {
+            history.back();
+            setTimeout(callback, 700);
+        }
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       EXPORT FATTURE → EXCEL
+       Struttura lista fatture (pagina_1):
+         col[0]=checkbox  [1]=TipoDoc  [2]=Nr.Fattura  [3]=DataFattura
+         [4]=CF/PIVA+Nome [5]=Imponibile [6]=IVA  [7]=N.registrazioni
+         [8]=ID SDI  [9]=Stato  [10]=DataConsegna  [12]=DataPresaVisione  [last]=Btn Dettaglio
+       Struttura dettaglio fattura (pagina_2 / pagina_5):
+         strong.ng-binding: [0]=utente [1]=pivaEmittente  [2]=idSdi  [3]=statoSdi  [4]=N.posizione
+         [5]=dataInvio  [6]=dataRicezione  [7]=tipoInvio  [8/9]=vuoto  [10/11]=tipoInvio
+         [12]=nomeFornitore  [13]=cfFornitore  [14]=paeseFornitore  [15]=pivaFornitore
+         [16]=nomeCliente  [17]=cfCliente  [18]=paeseCliente  [19]=pivaCliente
+         Tabella IVA: thead [Imponibile, AliquotaIVA, Imposta, Natura, Esigibilità]
+           tbody tr.ng-scope: [0]=imp  [1]=aliquota  [2]=imposta  [3]=natura  [4]=esigibilità
+           ultima tr = riga Totale (no .ng-scope)
+         bollo virtuale: p con testo "Sì" dentro div data-ng-show con bolloVirtuale
+    ═══════════════════════════════════════════════════════════════ */
+
+    function avviaExportFatture() {
+        var hash = window.location.hash;
+        if (hash.indexOf('/fatture/') === -1) {
+            alert('Vai prima nella sezione "Fatture emesse" o "Fatture acquisti".');
+            return;
+        }
+        if (_inCorso) return;
+
+        // Chiedi se includere le transfrontaliere (solo su emesse)
+        var suEmesse = hash.indexOf('/emesse') > -1;
+        var includiTransfrontaliere = false;
+        if (suEmesse) {
+            includiTransfrontaliere = confirm('Includere le fatture transfrontaliere nel file Excel?');
+        }
+
+        setRunning(true);
+        setProgress(0, 'Raccolta lista fatture...');
+        setTimeout(function () {
+            raccogliListaFatture(1, getTotalPages(), [], includiTransfrontaliere, function (voci) {
+                if (_stop) { setRunning(false); return; }
+                if (voci.length === 0) {
+                    setRunning(false);
+                    setStatus('⚠ Nessuna fattura trovata.');
+                    return;
+                }
+                setStatus('▶ ' + voci.length + ' fatture. Lettura dettagli IVA...');
+                analizzaDettagliFatture(voci, 0, [], function (righe) {
+                    if (!_stop) {
+                        setProgress(98, 'Generazione Excel...');
+                        setTimeout(function () { generaExcelFatture(righe); }, 200);
+                    }
+                });
+            });
+        }, 300);
+    }
+
+    /**
+     * FASE 1 – Raccoglie tutte le fatture da tutte le pagine.
+     * Se includiTransfrontaliere=true, al termine naviga alla sezione
+     * transfrontaliere e raccoglie anche quelle (senza dettaglio IVA).
+     */
+    function raccogliListaFatture(pagina, totPagine, voci, includiTransfrontaliere, callback) {
+        if (_stop) { callback(voci); return; }
+
+        var righe = document.querySelectorAll('tr[data-ng-repeat*="vm.items"], tr[data-ng-repeat*="fatture"]');
+        righe.forEach(function (r) {
+            var linkEl = r.querySelector('a[href*="/fatture/dettaglio/"]');
+            if (!linkEl) return;
+            var href = linkEl.getAttribute('href') || '';
+            if (!href) return;
+            // Deduplicazione
+            for (var i = 0; i < voci.length; i++) { if (voci[i].hash === href) return; }
+
+            /*
+             * Struttura reale delle colonne (da analisi DOM pagina_1.html):
+             * [0]=TipoFattura  [1]=TipoDoc  [2]=Numero  [3]=DataFattura
+             * [4]=Angular template dataRegistrazione  (da ignorare)
+             * [5]=Angular template identificativoCliente  (da ignorare)
+             * [6]=PIVA + " " + PIVA + " - " + Nome
+             * [7]=Imponibile  [8]=IVA  [9]=ID_SDI
+             * [10]=Stato  [11]=Angular template  [12]=DataConsegna
+             * [13]=BolloVirtuale (td vuoto = No; con elemento Angular = Sì)
+             * [14]=Btn Dettaglio
+             */
+            /*
+             * Struttura colonne lista fatture (pagina_1.html):
+             * [0]=TipoFattura  [1]=TipoDoc  [2]=Numero  [3]=DataFattura
+             * [4]=Angular {{dataRegistrazione}}  → ignorare (testo template non renderizzato)
+             * [5]=Angular {{identificativoCliente}}  → ignorare
+             * [6]="PIVA PIVA - NomeCliente"  → nome + piva
+             * [7]=Imponibile  [8]=IVA  [9]=ID_SDI
+             * [10]=Stato consegna  [11]=Angular template  [12]=DataConsegna
+             * [13]=BolloVirtuale (td: vuoto=No / figlio data-ng-if non ng-hide=Sì)
+             * [14]=Btn Dettaglio
+             */
+            var tipoDoc = r.children[1] ? r.children[1].innerText.trim() : '';
+            var numero  = r.children[2] ? r.children[2].innerText.trim() : '';
+            var data    = r.children[3] ? r.children[3].innerText.trim() : '';
+            var cfNome  = r.children[6] ? r.children[6].innerText.trim() : '';
+            var idSdi   = r.children[9] ? r.children[9].innerText.trim() : '';
+
+            // Bollo: il td[13] ha un figlio [data-ng-if] visibile (senza ng-hide) quando Y
+            var bolloEl = r.children[13];
+            var bolloChild = bolloEl ? bolloEl.querySelector('[data-ng-if]') : null;
+            var bollo = (bolloChild && bolloChild.className.indexOf('ng-hide') === -1) ? 'Sì' : 'No';
+
+            if (!numero || !data) return;
+
+            // Estrai P.IVA e nome: formato "02626600817 02626600817 - MG CAR RENTAL SRL"
+            // (la P.IVA appare duplicata, poi " - " e la denominazione)
+            var dashIdx = cfNome.indexOf(' - ');
+            var pivaRaw = dashIdx > -1 ? cfNome.substring(0, dashIdx).trim() : cfNome;
+            var nome    = dashIdx > -1 ? cfNome.substring(dashIdx + 3).trim() : cfNome;
+            // pivaRaw può essere "02626600817 02626600817" → prendi solo il primo token
+            var piva = pivaRaw.split(/\s+/)[0] || '';
+
+            voci.push({
+                hash: href, tipoDoc: tipoDoc, numero: numero,
+                data: data, nome: nome, piva: piva, idSdi: idSdi,
+                bollo: bollo, transfrontaliera: false
+            });
+        });
+
+        setProgress(pagina / totPagine * 12, 'Lista pag. ' + pagina + '/' + totPagine + ' (' + voci.length + ')');
+
+        if (pagina < totPagine) {
+            setPage(pagina + 1).then(function () {
+                raccogliListaFatture(pagina + 1, totPagine, voci, includiTransfrontaliere, callback);
+            });
+            return;
+        }
+
+        // Pagina finale: se richieste le transfrontaliere, naviga e raccoglile
+        setPage(1).then(function () {
+            if (!includiTransfrontaliere || _stop) { setTimeout(function () { callback(voci); }, 400); return; }
+
+            var linkTrans = document.querySelector('a[href="#/transfrontaliere/emesse"]');
+            if (!linkTrans) { callback(voci); return; }
+            setStatus('Raccolta fatture transfrontaliere...');
+            linkTrans.click();
+            // Attendi caricamento e poi raccoglie
+            var tentativi = 0;
+            var check = setInterval(function () {
+                tentativi++;
+                var righeT = document.querySelectorAll('tr[data-ng-repeat*="vm.items"]');
+                if (righeT.length > 0 || tentativi > 15) {
+                    clearInterval(check);
+                    righeT.forEach(function (r) {
+                        var tipoDoc  = r.children[1] ? r.children[1].innerText.trim() : '';
+                        var numero   = r.children[2] ? r.children[2].innerText.trim() : '';
+                        var data     = r.children[3] ? r.children[3].innerText.trim() : '';
+                        var paese    = r.children[4] ? r.children[4].innerText.trim() : '';
+                        var imp      = r.children[5] ? r.children[5].innerText.trim() : '';
+                        var iva      = r.children[6] ? r.children[6].innerText.trim() : '';
+                        if (!numero) return;
+                        voci.push({
+                            hash: null, tipoDoc: tipoDoc + ' (transfrontaliera)',
+                            numero: numero, data: data, nome: paese, piva: '',
+                            idSdi: '', transfrontaliera: true,
+                            impTrans: convN(imp), ivaTrans: convN(iva)
+                        });
+                    });
+                    // Torna a fatture emesse
+                    var linkEmesse = document.querySelector('a[href="#/fatture/emesse"]');
+                    if (linkEmesse) linkEmesse.click();
+                    setTimeout(function () { callback(voci); }, 800);
+                }
+            }, 500);
+        });
+    }
+
+    /**
+     * FASE 2 – Per ogni fattura (non transfrontaliera) naviga al dettaglio
+     * e legge i dati IVA riga per riga.
+     * Ogni fattura può avere più righe IVA (una per aliquota) → una riga Excel per aliquota.
+     */
+    function analizzaDettagliFatture(voci, idx, righe, callback) {
+        if (_stop || idx >= voci.length) { callback(righe); return; }
+
+        var voce = voci[idx];
+        var pct = 12 + (idx / voci.length * 85);
+        setProgress(pct, 'Fattura ' + (idx + 1) + '/' + voci.length + ' — ' + voce.numero);
+
+        // Fatture transfrontaliere non hanno dettaglio navigabile
+        if (voce.transfrontaliera) {
+            righe.push({
+                data: voce.data, numero: voce.numero, idSdi: voce.idSdi,
+                tipoDoc: voce.tipoDoc, nome: voce.nome, piva: voce.piva,
+                aliquota: '', imponibile: voce.impTrans || 0, imposta: voce.ivaTrans || 0,
+                natura: '', bollo: ''
+            });
+            analizzaDettagliFatture(voci, idx + 1, righe, callback);
+            return;
+        }
+
+        window.location.hash = voce.hash;
+
+        new Promise(function (res) { aspettaDettaglioFattura(res); }).then(function (ok) {
+            if (!ok) {
+                log('Timeout dettaglio fattura #' + idx + ', salto.');
+                righe.push({
+                    data: voce.data, numero: voce.numero, idSdi: voce.idSdi,
+                    tipoDoc: voce.tipoDoc, nome: voce.nome, piva: voce.piva,
+                    aliquota: 'ERRORE LETTURA', imponibile: 0, imposta: 0, natura: '', bollo: ''
+                });
+                tornaAllaLista(function () { analizzaDettagliFatture(voci, idx + 1, righe, callback); });
+                return;
             }
 
-            const aliquote = Array.from(aliquoteSet).sort();
-
-            // Genera un file XLS per ogni matricola
-            for (const [matricola, entries] of Object.entries(byMatricola)) {
-                let html = '<table border="1"><thead><tr>';
-                html += '<th>ID Invio</th><th>Data</th>';
-
-                for (const aliq of aliquote) {
-                    html += `<th>Imponibile ${aliq}</th>`;
-                    html += `<th>IVA ${aliq}</th>`;
+            try {
+                var dett = leggiDettaglioFattura(voce);
+                // Una riga per aliquota IVA
+                if (dett.aliquote.length > 0) {
+                    dett.aliquote.forEach(function (al) {
+                        righe.push({
+                            data: voce.data, numero: voce.numero, idSdi: dett.idSdi || voce.idSdi,
+                            tipoDoc: voce.tipoDoc,
+                            nome: dett.nome, piva: dett.piva,
+                            aliquota: al.aliquota, imponibile: al.imponibile, imposta: al.imposta,
+                            natura: al.natura, bollo: dett.bollo || voce.bollo || 'No'
+                        });
+                    });
+                } else {
+                    // Fattura senza righe IVA (es. fuori campo)
+                    righe.push({
+                        data: voce.data, numero: voce.numero, idSdi: dett.idSdi || voce.idSdi,
+                        tipoDoc: voce.tipoDoc,
+                        nome: dett.nome, piva: dett.piva,
+                        aliquota: '', imponibile: 0, imposta: 0, natura: '', bollo: dett.bollo || voce.bollo || 'No'
+                    });
                 }
+            } catch (e) { log('Errore leggiDettaglioFattura #' + idx + ': ' + e); }
 
-                html += '<th>Tot. Imponibile</th><th>Tot. IVA</th>';
-                html += '<th>Resi</th><th>Annulli</th>';
-                html += '<th>Totale Corrispettivi</th>';
-                html += '</tr></thead><tbody>';
+            setTimeout(function () {
+                tornaAllaLista(function () { analizzaDettagliFatture(voci, idx + 1, righe, callback); });
+            }, 350);
+        });
+    }
 
-                for (const e of entries) {
-                    html += '<tr>';
-                    html += `<td>${e.idInvio}</td><td>${e.data}</td>`;
+    /**
+     * Legge i dati di una fattura dal dettaglio aperto.
+     * Restituisce { idSdi, nome, piva, bollo, aliquote: [{aliquota, imponibile, imposta, natura}] }
+     *
+     * strong.ng-binding ordinati:
+     *   [0]=utente  [1]=pIvaAzienda  [2]=idSdi  [3]=statoSdi  [4]=nPosizione
+     *   [5]=dataInvio  [6]=dataRicezione
+     *   [12]=nomeFornitore  [13]=cfFornitore  [15]=pivaFornitore
+     *   [16]=nomeCliente    [19]=pivaCliente
+     * La sezione "Fornitore" ha label .custom-font "Fornitore", la sezione "Cliente" ha "Cliente".
+     * Su fatture emesse il campo rilevante è "Cliente"; su ricevute è "Fornitore".
+     * Strategia: leggo entrambi e poi determino in base all'URL/sezione corrente.
+     */
+    function leggiDettaglioFattura(voce) {
+        /*
+         * Nome, P.IVA e Bollo vengono portati da voce (letti dalla lista in Fase 1,
+         * dove i dati sono più affidabili). Qui leggiamo solo:
+         * - ID SDI dal pannello dettaglio (strong[2])
+         * - Tabella IVA (aliquote, imponibili, imposte)
+         *
+         * strong.ng-binding della pagina:
+         *   [0]=utente  [1]=pIvaAzienda  [2]=ID SDI  [3]=statoSdi  [4]=nPosizione
+         *   [5]=dataInvio  [6]=dataRicezione  [7]=tipoInvio
+         *   [12]=nomeFornitore  [13]=cfFornitore  [15]=pivaFornitore
+         *   [16]=nomeCliente    [19]=pivaCliente
+         */
+        var result = {
+            idSdi:    '',
+            nome:     voce.nome  || '',   // da lista
+            piva:     voce.piva  || '',   // da lista
+            bollo:    voce.bollo || 'No', // da lista
+            aliquote: []
+        };
 
-                    let totImp = 0, totIva = 0;
-                    for (const aliq of aliquote) {
-                        const imp = e[`imp_${aliq}`] || 0;
-                        const iva = e[`iva_${aliq}`] || 0;
-                        totImp += imp;
-                        totIva += iva;
-                        html += `<td class="num">${formatItalianNumber(imp)}</td>`;
-                        html += `<td class="num">${formatItalianNumber(iva)}</td>`;
-                    }
+        var strongs = document.querySelectorAll('strong.ng-binding');
+        // ID SDI: strong[2] contiene il numero identificativo SdI/file
+        result.idSdi = strongs[2] ? strongs[2].innerText.trim() : voce.idSdi;
 
-                    const totale = e.totale || (totImp + totIva);
-                    html += `<td class="num">${formatItalianNumber(totImp)}</td>`;
-                    html += `<td class="num">${formatItalianNumber(totIva)}</td>`;
-                    html += `<td>${e.resi || ''}</td>`;
-                    html += `<td>${e.annulli || ''}</td>`;
-                    html += `<td class="num">${formatItalianNumber(totale)}</td>`;
-                    html += '</tr>';
-                }
+        // Se nome/piva ancora vuoti (transfrontaliere / casi particolari), leggi dal dettaglio
+        if (!result.nome) {
+            var suEmesse = window.location.hash.indexOf('/emesse') > -1;
+            result.nome = (suEmesse ? (strongs[16] ? strongs[16].innerText.trim() : '')
+                                    : (strongs[12] ? strongs[12].innerText.trim() : ''));
+            result.piva = (suEmesse ? (strongs[19] ? strongs[19].innerText.trim() : '')
+                                    : (strongs[15] ? strongs[15].innerText.trim() : ''));
+        }
 
-                html += '</tbody></table>';
+        // Tabella IVA – cerca la prima tabella con header "Imponibile" e "Aliquota IVA"
+        var tabIva = null;
+        var tables = document.querySelectorAll('table');
+        for (var t = 0; t < tables.length; t++) {
+            var ths = tables[t].querySelectorAll('thead th');
+            for (var h = 0; h < ths.length; h++) {
+                if (ths[h].innerText.indexOf('Imponibile') > -1) { tabIva = tables[t]; break; }
+            }
+            if (tabIva) break;
+        }
+        if (tabIva) {
+            // Righe dati: solo ng-scope (esclude riga Totale)
+            var righeIva = tabIva.querySelectorAll('tbody tr.ng-scope');
+            if (righeIva.length === 0) {
+                // Fallback: tutte tranne ultima
+                var tutte = tabIva.querySelectorAll('tbody tr');
+                righeIva = Array.prototype.slice.call(tutte, 0, tutte.length - 1);
+            }
+            Array.prototype.forEach.call(righeIva, function (r) {
+                var c = r.children;
+                /*
+                 * Struttura tbody tr.ng-scope tabella IVA dettaglio:
+                 * [0]=Imponibile (th, testo "17,54 €")
+                 * [1]=AliquotaIVA (td, testo "22.00 %" oppure vuoto se natura)
+                 * [2]=Imposta    (td, testo "3,86 €")
+                 * [3]=Natura     (td, testo "N2" / "" ecc.)
+                 * [4]=EsigibilitàIVA
+                 * convN gestisce   e € grazie al fix applicato sopra
+                 */
+                var imp  = c[0] ? convN(c[0].innerText) : 0;
+                var aliq = c[1] ? c[1].innerText.replace(/\u00A0/g,'').trim() : '';
+                var imp2 = c[2] ? convN(c[2].innerText) : 0;
+                var nat  = c[3] ? c[3].innerText.replace(/\u00A0/g,'').trim() : '';
+                // ignora righe con tutti i valori a 0 e aliquota vuota (righe spurie)
+                if (imp === 0 && imp2 === 0 && !aliq && !nat) return;
+                result.aliquote.push({ aliquota: aliq, imponibile: imp, imposta: imp2, natura: nat });
+            });
+        }
 
-                const filename = `${piva}_${matricola}.xls`;
-                downloadXLS(html, filename);
+        return result;
+    }
+
+    function aspettaDettaglioFattura(resolve, ms) {
+        ms = ms || 0;
+        if (ms > 7000) { resolve(false); return; }
+        // Pronto quando c'è almeno una tabella con header "Imponibile"
+        var tables = document.querySelectorAll('table');
+        for (var t = 0; t < tables.length; t++) {
+            var ths = tables[t].querySelectorAll('thead th');
+            for (var h = 0; h < ths.length; h++) {
+                if (ths[h].innerText.indexOf('Imponibile') > -1) { resolve(true); return; }
+            }
+        }
+        setTimeout(function () { aspettaDettaglioFattura(resolve, ms + 200); }, 200);
+    }
+
+    /**
+     * FASE 3 – Genera l'Excel.
+     * Struttura Excel:
+     *   Data | N.Fattura | ID SDI | Tipo Doc | Nome C/F | P.IVA | Aliquota IVA |
+     *   Imponibile | Imposta | Tot.Imponibile | Tot.IVA | Totale Fattura | Bollo Virtuale
+     *
+     * Le fatture multi-aliquota hanno una riga per aliquota; i campi data/numero/nome
+     * sono ripetuti, i totali sono calcolati per fattura (somma di tutte le righe).
+     */
+    function generaExcelFatture(righe) {
+        if (righe.length === 0) { setStatus('⚠ Nessuna riga da esportare.'); return; }
+
+        var pivaEl = document.getElementById('piva');
+        var piva = pivaEl ? (pivaEl.value || '').trim() : '';
+
+        // Raggruppa righe per numero fattura per calcolare i totali
+        var totaliPerFattura = {};
+        righe.forEach(function (r) {
+            var key = r.idSdi || r.numero;
+            if (!totaliPerFattura[key]) totaliPerFattura[key] = { imp: 0, iva: 0 };
+            totaliPerFattura[key].imp += r.imponibile;
+            totaliPerFattura[key].iva += r.imposta;
+        });
+
+        var intestazione =
+            '<th>Data</th><th>N. Fattura</th><th>ID SDI</th><th>Tipo Documento</th>' +
+            '<th>Cliente / Fornitore</th><th>Partita IVA</th>' +
+            '<th>Aliquota IVA</th><th>Imponibile</th><th>Imposta</th>' +
+            '<th>Tot. Imponibile</th><th>Tot. IVA</th><th>Totale Fattura</th>' +
+            '<th>Bollo Virtuale</th>';
+
+        var righeHtml = '';
+        var totImpGlobale = 0, totIvaGlobale = 0;
+        // Per evitare doppio conteggio sui totali globali, sommiamo una volta per fattura
+        var fattureContate = {};
+
+        righe.forEach(function (r) {
+            var key = r.idSdi || r.numero;
+            var tot = totaliPerFattura[key] || { imp: r.imponibile, iva: r.imposta };
+            var totFatt = tot.imp + tot.iva;
+            var nc = r.tipoDoc && r.tipoDoc.toLowerCase().indexOf('nota di credito') > -1;
+            var colorImp = nc ? 'color:red' : '';
+
+            if (!fattureContate[key]) {
+                fattureContate[key] = true;
+                totImpGlobale += tot.imp;
+                totIvaGlobale += tot.iva;
             }
 
-            const matricoleCount = Object.keys(byMatricola).length;
-            setStatus(`Export completato: ${matricoleCount} file(s) per ${allRows.length} corrispettivi.`);
+            righeHtml +=
+                '<tr>' +
+                '<td align="center">' + r.data + '</td>' +
+                '<td align="center">' + r.numero + '</td>' +
+                '<td align="center">' + r.idSdi + '</td>' +
+                '<td>' + r.tipoDoc + '</td>' +
+                '<td>' + r.nome + '</td>' +
+                '<td align="center">' + r.piva + '</td>' +
+                '<td align="center">' + (r.aliquota || (r.natura || '')) + '</td>' +
+                '<td align="right" style="' + colorImp + '">' + fmtN(r.imponibile) + '</td>' +
+                '<td align="right" style="' + colorImp + '">' + fmtN(r.imposta) + '</td>' +
+                '<td align="right"><b style="' + colorImp + '">' + fmtN(tot.imp) + '</b></td>' +
+                '<td align="right"><b style="' + colorImp + '">' + fmtN(tot.iva) + '</b></td>' +
+                '<td align="right"><b style="' + colorImp + '">' + fmtN(totFatt) + '</b></td>' +
+                '<td align="center">' + r.bollo + '</td>' +
+                '</tr>';
+        });
 
-        } catch (err) {
-            console.error('FE-Utility: Errore export corrispettivi:', err);
-            setStatus(`Errore: ${err.message}`);
+        var totaleGlobale = totImpGlobale + totIvaGlobale;
+        var rigaTotali =
+            '<tr style="background:#c8e6c9;font-weight:bold">' +
+            '<th colspan="7" align="right">TOTALI:</th>' +
+            '<th align="right">' + fmtN(totImpGlobale) + '</th>' +
+            '<th align="right">' + fmtN(totIvaGlobale) + '</th>' +
+            '<th></th><th></th>' +
+            '<th align="right">' + fmtN(totaleGlobale) + '</th>' +
+            '<th></th>' +
+            '</tr>';
+
+        var nCols = 13;
+        // Sezione e periodo dal titolo della pagina
+        var titoloEl = document.querySelector('h2.ng-binding, h2.no-margin-top');
+        var titoloTesto = titoloEl ? titoloEl.innerText.trim() : 'Fatture';
+
+        var xls =
+            "<meta http-equiv='content-type' content='text/html;charset=utf-8'>" +
+            "<table border='1' style='border-collapse:collapse'>" +
+            "<tr><th colspan='" + nCols + "' align='center' " +
+            "style='background:#1b3a2b;color:#a5d6a7;font-size:13px'>" +
+            titoloTesto + "</th></tr>" +
+            "<tr style='background:#e8f5e9;font-weight:bold'>" + intestazione + "</tr>" +
+            righeHtml +
+            "<tr><td colspan='" + nCols + "'></td></tr>" +
+            rigaTotali +
+            "</table>";
+
+        var hash = window.location.hash;
+        var sezione = hash.indexOf('/emesse') > -1 ? 'emesse' :
+                      hash.indexOf('/ricevute') > -1 ? 'ricevute' : 'fatture';
+        var filename = (piva ? piva + '_' : '') + sezione + '.xls';
+
+        var blob = new Blob([xls], { type: 'application/vnd.ms-excel;charset=utf-8' });
+        gmDownload(filename, blob);
+
+        var nFatture = Object.keys(fattureContate).length;
+        setProgress(100, '✅ Excel: ' + filename + ' — ' + nFatture + ' fatture, ' + righe.length + ' righe IVA');
+        var prow = document.getElementById('FEPlugin_BottomRow');
+        if (prow) setTimeout(function () { prow.style.setProperty('display','none','important'); }, 4000);
+    }
+
+
+    /* ═══════════════════════════════════════════════════════════════
+       ANALISI CORRISPETTIVI → EXCEL
+       Struttura tabella IVA nel dettaglio corrispettivo (pagina_4):
+         Colonne tbody tr.ng-scope:
+           [0]=Num.linea  [1]=Aliquota IVA  [2]=Imponibile (span.ng-binding interno)
+           [3]=Imposta    [4]=Natura        [5]=Ventilazione  [6]=Codice attività
+           [7]=Rif.norm.  [8]=Resi          [9]=Annulli       [10]=Totale non riscossi
+       Struttura lista corrispettivi (pagina_3):
+           [0]=ID invio (th)  [1]=Matricola dispositivo  [2]=Data/ora invio
+           [3]=Data/ora rice. [4]=stato                  [5]=Totale  [8]=btn dettaglio
+       NOTE SUI BUG CORRETTI:
+         - La pagina Angular contiene 3 istanze di ng-repeat (per 3 viste diverse)
+           → duplicati risolti con deduplicazione per href + filtro su href valido
+         - Le formule Excel con rowspan causavano riferimenti errati
+           → tutti i valori calcolati in JS, nessuna formula nel file
+    ═══════════════════════════════════════════════════════════════ */
+
+    function avviaAnalisiCorrispettivi() {
+        if (window.location.hash.indexOf('/corrispettivi/') === -1) {
+            if (!confirm('Non sei nella sezione Corrispettivi. Hash corrente: ' + window.location.hash + '\nContinuare?')) return;
+        }
+        if (_inCorso) return;
+        setRunning(true);
+        setProgress(0, 'Raccolta lista corrispettivi...');
+        setTimeout(function () {
+            raccogliListaCorr(1, getTotalPages(), [], function (voci) {
+                if (_stop) { setRunning(false); return; }
+                if (voci.length === 0) {
+                    setRunning(false);
+                    setStatus('⚠ Nessun corrispettivo trovato. Controllare la sezione aperta.');
+                    return;
+                }
+                log('Voci raccolte: ' + voci.length + ' — prima: ' + JSON.stringify(voci[0]));
+                setStatus('▶ ' + voci.length + ' corrispettivi. Lettura dettagli...');
+                analizzaDettagliCorr(voci, 0, {});
+            });
+        }, 300);
+    }
+
+    /**
+     * FASE 1 — Scorre TUTTE le pagine della lista e costruisce l'array voci.
+     * FIX BUG DUPLICATI: la pagina Angular monta 3 copie della ng-repeat (visibili,
+     * nascoste, template). Usiamo href come chiave di deduplicazione e filtriamo
+     * solo gli href che puntano a /corrispettivi/dettaglio/.
+     */
+    function raccogliListaCorr(pagina, totPagine, voci, callback) {
+        if (_stop) { callback(voci); return; }
+
+        var righe = document.querySelectorAll('tr[data-ng-repeat*="vm.items"]');
+        righe.forEach(function (r) {
+            var linkEl = r.querySelector('a.btn.btn-primary.btn-xs');
+            if (!linkEl) return;
+            var href = linkEl.getAttribute('href') || '';
+
+            // FIX 1: accetta SOLO righe che puntano al dettaglio corrispettivo
+            if (href.indexOf('/corrispettivi/dettaglio/') === -1) return;
+
+            var matricola  = r.children[1] ? r.children[1].innerText.trim() : '';
+            var dataOra    = r.children[2] ? r.children[2].innerText.trim() : '';
+            var data       = dataOra.substring(0, 10); // "dd/mm/yyyy"
+            var totaleLordo = convN(r.children[5] ? r.children[5].innerText : '0');
+            var idInvio    = r.children[0] ? r.children[0].innerText.trim() : ''; // col[0] = ID invio (th)
+
+            // FIX 2: salta righe template/vuote (senza matricola o data)
+            if (!matricola || !data || data.length < 10) return;
+
+            // FIX 3: deduplicazione per href — evita le 3 copie Angular
+            for (var i = 0; i < voci.length; i++) {
+                if (voci[i].hash === href) return;
+            }
+
+            voci.push({ hash: href, matricola: matricola, data: data, totaleLordo: totaleLordo, idInvio: idInvio });
+        });
+
+        setProgress(pagina / totPagine * 15, 'Lista pag. ' + pagina + '/' + totPagine + ' (' + voci.length + ' trovati)');
+
+        if (pagina >= totPagine) {
+            setPage(1).then(function () { setTimeout(function () { callback(voci); }, 500); });
+        } else {
+            setPage(pagina + 1).then(function () {
+                raccogliListaCorr(pagina + 1, totPagine, voci, callback);
+            });
         }
     }
 
-    /* ========================================================================
-     *  UI — TOOLBAR
-     * ====================================================================== */
-
-    function setStatus(text, isLoading = false) {
-        const el = document.getElementById(STATUS_ID);
-        if (el) {
-            el.textContent = (isLoading ? '⏳ ' : '✅ ') + text;
-        }
-    }
-
-    function createToolbar() {
-        // Rimuovi se esiste già
-        const existing = document.getElementById(BAR_ID);
-        if (existing) existing.remove();
-
-        const bar = document.createElement('div');
-        bar.id = BAR_ID;
-        bar.style.cssText = `
-            all: initial !important;
-            display: flex !important;
-            align-items: center !important;
-            position: fixed !important;
-            top: 0 !important;
-            left: 0 !important;
-            right: 0 !important;
-            height: 38px !important;
-            background: ${THEME.barBg} !important;
-            color: ${THEME.barText} !important;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, sans-serif !important;
-            font-size: 13px !important;
-            z-index: 2147483647 !important;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.3) !important;
-            padding: 0 8px !important;
-            box-sizing: border-box !important;
-            gap: 4px !important;
-        `;
-
-        // Logo/titolo
-        const title = document.createElement('span');
-        title.textContent = `📄 ${SCRIPT_NAME} v${VERSION}`;
-        title.style.cssText = `
-            all: initial !important;
-            color: ${THEME.barText} !important;
-            font-family: inherit !important;
-            font-size: 13px !important;
-            font-weight: 700 !important;
-            white-space: nowrap !important;
-            margin-right: 10px !important;
-            padding: 0 6px !important;
-            border-right: 1px solid rgba(255,255,255,0.25) !important;
-        `;
-        bar.appendChild(title);
-
-        // Pulsante Scarica Fatture
-        const btnDownload = createBarButton('⬇ Scarica fatture', scaricaFatture, 'Download massivo XML + metadati di tutte le fatture');
-        bar.appendChild(btnDownload);
-
-        // Pulsante Export Fatture → Excel
-        const btnExcelFatture = createBarButton('📊 Fatture→Excel', exportFattureExcel, 'Esporta le fatture in un file Excel (.xls)');
-        bar.appendChild(btnExcelFatture);
-
-        // Pulsante Export Corrispettivi → Excel (visibile solo se in sezione corrispettivi)
-        if (isCorrispettivi()) {
-            const btnExcelCorr = createBarButton('📈 Corrispettivi→Excel', exportCorrispettiviExcel, 'Esporta i corrispettivi in file Excel (.xls)');
-            bar.appendChild(btnExcelCorr);
+    /**
+     * FASE 2 — Per ogni voce naviga al dettaglio, legge la tabella IVA,
+     * accumula in datiPerMatricola[matricola] = [ {data, aliquote, resi, annulli}, ... ]
+     */
+    function analizzaDettagliCorr(voci, idx, datiPerMatricola) {
+        if (_stop || idx >= voci.length) {
+            setRunning(false);
+            if (!_stop) {
+                setProgress(97, 'Generazione file Excel...');
+                setTimeout(function () { generaExcelCorrispettivi(datiPerMatricola); }, 300);
+            }
+            return;
         }
 
-        // Selettore date — SEMPRE VISIBILE E ATTIVO (issue #3)
-        const datePanel = createDatePanel();
-        bar.appendChild(datePanel);
+        var voce = voci[idx];
+        setProgress(15 + (idx / voci.length * 82), 'Corrispettivo ' + (idx + 1) + '/' + voci.length + ' — ' + voce.matricola + ' ' + voce.data);
 
-        // Spacer
-        const spacer = document.createElement('div');
-        spacer.style.cssText = 'all:initial!important;flex:1!important;';
-        bar.appendChild(spacer);
+        window.location.hash = voce.hash;
 
-        // Status area
-        const status = document.createElement('span');
-        status.id = STATUS_ID;
-        status.style.cssText = `
-            all: initial !important;
-            color: ${THEME.accent} !important;
-            font-family: inherit !important;
-            font-size: 11px !important;
-            padding: 2px 8px !important;
-            background: ${THEME.statusBg} !important;
-            border-radius: 3px !important;
-            max-width: 300px !important;
-            overflow: hidden !important;
-            text-overflow: ellipsis !important;
-            white-space: nowrap !important;
-            margin-right: 6px !important;
-        `;
-        status.textContent = 'Pronto';
-        bar.appendChild(status);
+        new Promise(function (res) { aspettaDettaglioCorr(res); }).then(function (ok) {
+            if (!ok) {
+                log('Timeout corr #' + idx + ' (' + voce.hash + '), salto.');
+                tornaAllaListaCorr(function () { analizzaDettagliCorr(voci, idx + 1, datiPerMatricola); });
+                return;
+            }
 
-        // Link istruzioni ℹ️ — posizionato a destra vicino alla X (richiesta #2)
-        const infoLink = document.createElement('a');
-        infoLink.href = INSTRUCTIONS_URL;
-        infoLink.target = '_blank';
-        infoLink.rel = 'noopener noreferrer';
-        infoLink.textContent = 'ℹ️';
-        infoLink.title = 'Istruzioni FE-Utility';
-        infoLink.style.cssText = `
-            all: initial !important;
-            display: flex !important;
-            align-items: center !important;
-            justify-content: center !important;
-            width: 28px !important;
-            height: 28px !important;
-            font-size: 16px !important;
-            text-decoration: none !important;
-            cursor: pointer !important;
-            border-radius: 4px !important;
-            margin-right: 4px !important;
-            background: rgba(255,255,255,0.1) !important;
-            transition: background 0.2s !important;
-        `;
-        infoLink.addEventListener('mouseover', () => {
-            infoLink.style.background = 'rgba(255,255,255,0.25) !important';
+            try {
+                var dettIva = leggiDettaglioCorr();
+                // La matricola viene SEMPRE da voce (fase 1, dalla lista) — mai dall'URL
+                var mat = voce.matricola;
+                if (!datiPerMatricola[mat]) datiPerMatricola[mat] = [];
+                datiPerMatricola[mat].push({
+                    data:        voce.data,
+                    idInvio:     voce.idInvio || '',
+                    totaleLordo: voce.totaleLordo,
+                    aliquote:    dettIva.aliquote,   // { "10.00%": {imp, iva}, ... }
+                    resi:        dettIva.resi,
+                    annulli:     dettIva.annulli
+                });
+                log('Letto: ' + mat + ' ' + voce.data + ' aliquote=' + JSON.stringify(Object.keys(dettIva.aliquote)));
+            } catch (e) {
+                log('Errore leggiDettaglioCorr #' + idx + ': ' + e);
+            }
+
+            setTimeout(function () {
+                tornaAllaListaCorr(function () { analizzaDettagliCorr(voci, idx + 1, datiPerMatricola); });
+            }, 350);
         });
-        infoLink.addEventListener('mouseout', () => {
-            infoLink.style.background = 'rgba(255,255,255,0.1) !important';
-        });
-        bar.appendChild(infoLink);
-
-        // Pulsante chiusura X
-        const closeBtn = document.createElement('button');
-        closeBtn.textContent = '✕';
-        closeBtn.title = 'Chiudi barra FE-Utility';
-        closeBtn.style.cssText = `
-            all: initial !important;
-            display: flex !important;
-            align-items: center !important;
-            justify-content: center !important;
-            width: 28px !important;
-            height: 28px !important;
-            border: none !important;
-            border-radius: 4px !important;
-            background: ${THEME.danger} !important;
-            color: ${THEME.barText} !important;
-            font-family: inherit !important;
-            font-size: 14px !important;
-            font-weight: 700 !important;
-            cursor: pointer !important;
-            line-height: 1 !important;
-        `;
-        closeBtn.addEventListener('click', () => {
-            bar.style.display = 'none';
-            // Ripristina il margine
-            document.body.style.marginTop = '';
-            // Mostra un piccolo tab per riaprire
-            showReopenTab();
-        });
-        closeBtn.addEventListener('mouseover', () => {
-            closeBtn.style.background = `${THEME.dangerHover} !important`;
-        });
-        closeBtn.addEventListener('mouseout', () => {
-            closeBtn.style.background = `${THEME.danger} !important`;
-        });
-        bar.appendChild(closeBtn);
-
-        document.body.appendChild(bar);
-
-        // Sposta il body sotto la barra
-        document.body.style.marginTop = '42px';
     }
 
-    function createBarButton(text, onClick, tooltip) {
-        const btn = document.createElement('button');
-        btn.textContent = text;
-        btn.title = tooltip || text;
-        btn.style.cssText = buttonStyle();
-        btn.addEventListener('click', (e) => {
-            e.preventDefault();
-            onClick();
+    /**
+     * Legge la tabella IVA dalla pagina di dettaglio aperta.
+     * Cerca la prima <table> che ha un <th> con testo "Aliquota" nell'header.
+     * Raccoglie SOLO le righe con classe ng-scope (esclude la riga "Totale:").
+     */
+    function leggiDettaglioCorr() {
+        var result = { aliquote: {}, resi: 0, annulli: 0 };
+
+        // Trova la tabella IVA
+        var tabIva = null;
+        var tables = document.querySelectorAll('table');
+        for (var t = 0; t < tables.length; t++) {
+            var ths = tables[t].querySelectorAll('thead th');
+            for (var h = 0; h < ths.length; h++) {
+                if (ths[h].innerText.indexOf('Aliquota') > -1) { tabIva = tables[t]; break; }
+            }
+            if (tabIva) break;
+        }
+        if (!tabIva) { log('Tabella IVA non trovata'); return result; }
+
+        // Solo righe dati (ng-scope), non la riga riepilogativa "Totale:"
+        var righe = tabIva.querySelectorAll('tbody tr.ng-scope');
+        if (righe.length === 0) {
+            // Fallback: tutte le righe tranne l'ultima (che è "Totale:")
+            var tutte = tabIva.querySelectorAll('tbody tr');
+            righe = Array.prototype.slice.call(tutte, 0, tutte.length - 1);
+        }
+
+        Array.prototype.forEach.call(righe, function (r) {
+            var c = r.children;
+            if (!c[1]) return;
+
+            var aliquota = c[1].innerText.trim();          // "10.00 %"
+            var natura   = c[4] ? c[4].innerText.trim() : '';
+            var ventil   = c[5] ? c[5].innerText.trim() : '';
+
+            // Imponibile: può stare in uno span.ng-binding dentro la cella (nuovo tracciato)
+            var impSpan  = c[2] ? c[2].querySelector('span.ng-binding') : null;
+            var imp      = impSpan ? convN(impSpan.innerText) : (c[2] ? convN(c[2].innerText) : 0);
+            var iva      = c[3] ? convN(c[3].innerText) : 0;
+            var resi     = c[8] ? convN(c[8].innerText) : 0;
+            var annulli  = c[9] ? convN(c[9].innerText) : 0;
+
+            // Identificatore aliquota: ventilazione > aliquota numerica > natura > generico
+            var id = ventil   ? 'Ventilazione IVA' :
+                     (parseFloat(aliquota) > 0 ? aliquota.replace(/\s/g, '') : (natura || 'Esente/N.I.'));
+
+            if (!result.aliquote[id]) result.aliquote[id] = { imp: 0, iva: 0 };
+            result.aliquote[id].imp += imp;
+            result.aliquote[id].iva += iva;
+            result.resi    += resi;
+            result.annulli += annulli;
         });
-        btn.addEventListener('mouseover', () => {
-            btn.style.background = `${THEME.btnHover} !important`;
-        });
-        btn.addEventListener('mouseout', () => {
-            btn.style.background = `${THEME.btnBg} !important`;
-        });
-        return btn;
+
+        return result;
     }
 
-    function showReopenTab() {
-        const tab = document.createElement('div');
-        tab.style.cssText = `
-            all: initial !important;
-            position: fixed !important;
-            top: 0 !important;
-            right: 20px !important;
-            background: ${THEME.barBg} !important;
-            color: ${THEME.barText} !important;
-            padding: 4px 12px !important;
-            border-radius: 0 0 6px 6px !important;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
-            font-size: 12px !important;
-            cursor: pointer !important;
-            z-index: 2147483647 !important;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.2) !important;
-        `;
-        tab.textContent = '📄 FE-Utility';
-        tab.title = 'Riapri la barra FE-Utility';
-        tab.addEventListener('click', () => {
-            tab.remove();
-            const bar = document.getElementById(BAR_ID);
-            if (bar) {
-                bar.style.display = 'flex';
-                document.body.style.marginTop = '42px';
+    function aspettaDettaglioCorr(resolve, ms) {
+        ms = ms || 0;
+        if (ms > 7000) { resolve(false); return; }
+        var tables = document.querySelectorAll('table');
+        for (var t = 0; t < tables.length; t++) {
+            var ths = tables[t].querySelectorAll('thead th');
+            for (var h = 0; h < ths.length; h++) {
+                if (ths[h].innerText.indexOf('Aliquota') > -1) { resolve(true); return; }
+            }
+        }
+        setTimeout(function () { aspettaDettaglioCorr(resolve, ms + 200); }, 200);
+    }
+
+    function tornaAllaListaCorr(callback) {
+        var btn = document.querySelector('[data-ng-click*="backtoLista"]');
+        if (btn) { btn.click(); setTimeout(callback, 600); return; }
+        var chevron = document.querySelector('.fa-chevron-left');
+        if (chevron && chevron.parentNode) { chevron.parentNode.click(); setTimeout(callback, 600); return; }
+        history.back();
+        setTimeout(callback, 700);
+    }
+
+    /**
+     * FASE 3 — Genera un file .xls per ogni matricola dispositivo.
+     *
+     * Struttura del foglio (tutti i valori calcolati in JS, nessuna formula):
+     *   Riga 1:  Titolo "Corrispettivi – MATRICOLA"
+     *   Riga 2:  Intestazioni: Data | Imp.X% | IVA X% | Imp.Y% | IVA Y% | ...
+     *                         | Tot.Imponibile | Tot.IVA | Resi | Annulli
+     *                         | Tot.Resi+Annulli | Totale Netto
+     *   Riga 3+: Una riga per giorno
+     *   Ultima:  TOTALI (somme calcolate in JS)
+     *
+     * FIX BUG FORMULE: nessun rowspan/colspan nell'header, tutti i valori
+     * calcolati in JavaScript — nessun riferimento di cella che possa essere errato.
+     */
+    function generaExcelCorrispettivi(datiPerMatricola) {
+        var matricole = Object.keys(datiPerMatricola);
+        if (matricole.length === 0) { setStatus('⚠ Nessun dato raccolto. Riprovare.'); return; }
+
+        // P.IVA dal selettore della pagina (presente sia fatture che corrispettivi)
+        var pivaEl = document.getElementById('piva');
+        var piva = pivaEl ? (pivaEl.value || '').trim() : '';
+
+        // Converte "dd/mm/yyyy" in Date per ordinamento
+        function parseDataIt(s) {
+            var p = s ? s.split('/') : [];
+            return p.length === 3 ? new Date(+p[2], +p[1]-1, +p[0]) : new Date(0);
+        }
+
+        var nFile = 0;
+        matricole.forEach(function (matricola) {
+            var giorni = datiPerMatricola[matricola];
+
+            // Ordina per data crescente
+            giorni.sort(function (a, b) { return parseDataIt(a.data) - parseDataIt(b.data); });
+
+            // Raccoglie tutte le aliquote presenti per questa matricola
+            var aliquoteSet = {};
+            giorni.forEach(function (g) {
+                Object.keys(g.aliquote).forEach(function (id) { aliquoteSet[id] = true; });
+            });
+            var aliquote = Object.keys(aliquoteSet);
+
+            // ── Intestazione ─────────────────────────────────────────────
+            // Colonne: ID Invio | Data | Imp.X% | IVA X% | ... | Tot.Imp | Tot.IVA | Totale
+            // NOTE: Resi e Annulli sono già sottratti a monte dall'imponibile dal portale
+            //       → li mostriamo solo come memo ma NON incidono sul totale
+            var thAliquote = '';
+            aliquote.forEach(function (id) {
+                thAliquote += '<th>Imponibile ' + id + '</th><th>IVA ' + id + '</th>';
+            });
+            var intestazione =
+                '<th>ID Invio</th><th>Data</th>' + thAliquote +
+                '<th>Tot. Imponibile</th><th>Tot. IVA</th>' +
+                '<th>Resi (memo)</th><th>Annulli (memo)</th>' +
+                '<th>Totale Corrispettivi</th>';
+
+            // ── Righe dati ───────────────────────────────────────────────
+            var righeHtml = '';
+            var totPerAliquota = {};
+            aliquote.forEach(function (id) { totPerAliquota[id] = { imp: 0, iva: 0 }; });
+            var totImpGlobale = 0, totIvaGlobale = 0;
+            var totResiMemo = 0, totAnnulliMemo = 0;
+
+            giorni.forEach(function (g) {
+                var tdAliquote = '';
+                var totImpRiga = 0, totIvaRiga = 0;
+
+                aliquote.forEach(function (id) {
+                    var imp = g.aliquote[id] ? g.aliquote[id].imp : 0;
+                    var iva = g.aliquote[id] ? g.aliquote[id].iva : 0;
+                    tdAliquote += '<td align="right">' + (g.aliquote[id] ? fmtN(imp) : '') + '</td>';
+                    tdAliquote += '<td align="right">' + (g.aliquote[id] ? fmtN(iva) : '') + '</td>';
+                    totImpRiga += imp;
+                    totIvaRiga += iva;
+                    totPerAliquota[id].imp += imp;
+                    totPerAliquota[id].iva += iva;
+                });
+
+                // Totale = solo imponibile + IVA (resi/annulli già tolti a monte)
+                var totaleGiorno = totImpRiga + totIvaRiga;
+                totImpGlobale += totImpRiga;
+                totIvaGlobale += totIvaRiga;
+                totResiMemo   += g.resi;
+                totAnnulliMemo += g.annulli;
+
+                righeHtml +=
+                    '<tr>' +
+                    '<td align="center">' + (g.idInvio || '') + '</td>' +
+                    '<td align="center">' + g.data + '</td>' +
+                    tdAliquote +
+                    '<td align="right"><b>' + fmtN(totImpRiga)   + '</b></td>' +
+                    '<td align="right"><b>' + fmtN(totIvaRiga)   + '</b></td>' +
+                    '<td align="right" style="color:#999;font-style:italic">' + fmtN(g.resi)    + '</td>' +
+                    '<td align="right" style="color:#999;font-style:italic">' + fmtN(g.annulli) + '</td>' +
+                    '<td align="right"><b>' + fmtN(totaleGiorno) + '</b></td>' +
+                    '</tr>';
+            });
+
+            // ── Riga TOTALI ──────────────────────────────────────────────
+            var tdTotAliquote = '';
+            aliquote.forEach(function (id) {
+                tdTotAliquote +=
+                    '<th align="right">' + fmtN(totPerAliquota[id].imp) + '</th>' +
+                    '<th align="right">' + fmtN(totPerAliquota[id].iva) + '</th>';
+            });
+            var totaleGlobale = totImpGlobale + totIvaGlobale;
+            var rigaTotali =
+                '<tr style="background:#c8e6c9;font-weight:bold">' +
+                '<th colspan="2">TOTALI</th>' +
+                tdTotAliquote +
+                '<th align="right">' + fmtN(totImpGlobale)    + '</th>' +
+                '<th align="right">' + fmtN(totIvaGlobale)    + '</th>' +
+                '<th align="right" style="color:#999">' + fmtN(totResiMemo)    + '</th>' +
+                '<th align="right" style="color:#999">' + fmtN(totAnnulliMemo) + '</th>' +
+                '<th align="right">' + fmtN(totaleGlobale)    + '</th>' +
+                '</tr>';
+
+            // nCols: ID Invio + Data + coppie aliquote + Tot.Imp + Tot.IVA + Resi + Annulli + Totale
+            var nCols = 2 + aliquote.length * 2 + 5;
+
+            var xls =
+                "<meta http-equiv='content-type' content='text/html;charset=utf-8'>" +
+                "<table border='1' style='border-collapse:collapse'>" +
+                "<tr><th colspan='" + nCols + "' align='center' " +
+                "style='background:#1b3a2b;color:#a5d6a7;font-size:14px'>" +
+                "Corrispettivi &ndash; " + matricola + "</th></tr>" +
+                "<tr style='background:#e8f5e9;font-weight:bold'>" + intestazione + "</tr>" +
+                righeHtml +
+                "<tr><td colspan='" + nCols + "'></td></tr>" +
+                rigaTotali +
+                "</table>";
+
+            var blob = new Blob([xls], { type: 'application/vnd.ms-excel;charset=utf-8' });
+            gmDownload((piva ? piva + '_' : '') + matricola + '.xls', blob);
+            nFile++;
+        });
+
+        setProgress(100, '✅ Generati ' + nFile + ' file Excel (' + matricole.join(', ') + ')');
+        var prow = document.getElementById('FEPlugin_BottomRow');
+        if (prow) setTimeout(function () { prow.style.setProperty('display','none','important'); }, 4000);
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       SELETTORE DATE RAPIDO
+    ═══════════════════════════════════════════════════════════════ */
+
+    function creaSelezionaDate() {
+        if (document.getElementById('FEPlugin_DatePicker')) {
+            document.getElementById('FEPlugin_DatePicker').remove();
+            return;
+        }
+
+        var Dal = document.getElementById('dal');
+        var Al = document.getElementById('al');
+        if (!Dal || !Al) { alert('Campi data non trovati sulla pagina.'); return; }
+
+        var pulsanteCerca = document.querySelector('.btn.btn-primary.ng-binding');
+        var contenitore = Dal.closest('.row, .col-md-6, .form-group') || Dal.parentNode;
+
+        var oggi = new Date();
+        var annoCorrente = oggi.getFullYear();
+        var annoEl = document.createElement('div');
+        annoEl.id = 'FEPlugin_DatePicker';
+        annoEl.style.cssText = 'background:#e8f5e9;border:1px solid #2e7d32;border-radius:6px;padding:10px;margin-top:8px;font-size:12px;';
+
+        var anni = [];
+        for (var a = annoCorrente; a >= 2019; a--) anni.push(a);
+
+        annoEl.innerHTML = [
+            '<b style="color:#1b3a2b">&#128197; FE-Utility: Selettore date</b>&nbsp;',
+            'Anno: <input type="number" id="FEPlugin_Anno" value="' + annoCorrente + '" min="2019" max="' + annoCorrente + '" style="width:60px">',
+            '&nbsp;<select id="FEPlugin_PeriodSel" style="font-size:12px">',
+            '<option value="">-- Seleziona periodo --</option>',
+            '<option value="T1">I trimestre</option>',
+            '<option value="T2">II trimestre</option>',
+            '<option value="T3">III trimestre</option>',
+            '<option value="T4">IV trimestre</option>',
+            '<option value="M1">Gennaio</option><option value="M2">Febbraio</option>',
+            '<option value="M3">Marzo</option><option value="M4">Aprile</option>',
+            '<option value="M5">Maggio</option><option value="M6">Giugno</option>',
+            '<option value="M7">Luglio</option><option value="M8">Agosto</option>',
+            '<option value="M9">Settembre</option><option value="M10">Ottobre</option>',
+            '<option value="M11">Novembre</option><option value="M12">Dicembre</option>',
+            '<option value="anno">Anno intero</option>',
+            '</select>',
+            '&nbsp;<button id="FEPlugin_ApplicaDate" style="font-size:11px;padding:3px 8px;background:#2e7d32;color:white;border:none;border-radius:3px;cursor:pointer">Applica</button>'
+        ].join('');
+
+        contenitore.appendChild(annoEl);
+
+        document.getElementById('FEPlugin_ApplicaDate').onclick = function () {
+            var anno = parseInt(document.getElementById('FEPlugin_Anno').value);
+            var sel = document.getElementById('FEPlugin_PeriodSel').value;
+            if (!sel) return;
+            var dalV, alV;
+
+            // Restituisce l'ultimo giorno di un mese come stringa "dd/mm/yyyy"
+            function ultimoGiornoMese(m) {
+                return pad2(new Date(anno, m, 0).getDate()) + '/' + pad2(m) + '/' + anno;
+            }
+
+            // Limita la data finale a OGGI se è nel futuro
+            // Input/output: "dd/mm/yyyy"
+            function capAOggi(dataStr) {
+                var p = dataStr.split('/');
+                var d = new Date(+p[2], +p[1] - 1, +p[0]);
+                if (d > oggi) {
+                    return pad2(oggi.getDate()) + '/' + pad2(oggi.getMonth() + 1) + '/' + oggi.getFullYear();
+                }
+                return dataStr;
+            }
+
+            if (sel === 'anno') {
+                dalV = '01/01/' + anno;
+                alV  = '31/12/' + anno;
+            } else if (sel.startsWith('T')) {
+                var t = parseInt(sel[1]);
+                var mesi = [[1, 3], [4, 6], [7, 9], [10, 12]][t - 1];
+                dalV = '01/' + pad2(mesi[0]) + '/' + anno;
+                alV  = ultimoGiornoMese(mesi[1]);
             } else {
-                createToolbar();
+                var m = parseInt(sel.substring(1));
+                dalV = '01/' + pad2(m) + '/' + anno;
+                alV  = ultimoGiornoMese(m);
             }
+
+            // Applica il cap: se alV cade nel futuro → oggi
+            alV = capAOggi(alV);
+
+            Dal.value = dalV; Dal.dispatchEvent(new Event('change'));
+            setTimeout(function () {
+                Al.value = alV; Al.dispatchEvent(new Event('change'));
+                if (pulsanteCerca) setTimeout(function () { pulsanteCerca.click(); }, 250);
+            }, 200);
+        };
+
+        // Scorciatoie tastiera: numpad 1-4 = trimestri, 1-9 + 0 + O + P = mesi
+        window._FEPlugin_keyHandler = function (e) {
+            var k = e.keyCode;
+            if (document.activeElement && document.activeElement.tagName === 'INPUT') return;
+            var sel = document.getElementById('FEPlugin_PeriodSel');
+            if (!sel) return;
+            var mappa = { 97: 'T1', 98: 'T2', 99: 'T3', 100: 'T4' };
+            for (var i = 1; i <= 9; i++) mappa[48 + i] = 'M' + i;
+            mappa[48] = 'M10'; mappa[79] = 'M11'; mappa[80] = 'M12';
+            if (mappa[k]) { sel.value = mappa[k]; document.getElementById('FEPlugin_ApplicaDate').click(); }
+        };
+        window.addEventListener('keydown', window._FEPlugin_keyHandler);
+        setStatus('📅 Selettore date attivo (tasti: 1-4 pad=trimestri, 1-9,0,O,P=mesi)');
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       AVVIO
+    ═══════════════════════════════════════════════════════════════ */
+    creaPanel();
+    setStatus('Pronto. Scegli un\'azione dal menu.');
+
+    // Tenta subito di espandere la paginazione su una pagina sola
+    setTimeout(function () {
+        trySetAllOnOnePage().then(function (ok) {
+            if (ok) setStatus('✓ Tutte le fatture caricate in pagina. Scegli un\'azione.');
         });
-        document.body.appendChild(tab);
+    }, 800);
+
+    // AUTO-ATTIVAZIONE SELETTORE DATE (issue #3)
+    // Attiva automaticamente il selettore date quando i campi sono presenti
+    function autoAttivaDateSelector() {
+        var lastHash = window.location.hash;
+        // Controlla al primo caricamento
+        setTimeout(function () {
+            var Dal = document.getElementById('dal');
+            var Al  = document.getElementById('al');
+            if (Dal && Al && !document.getElementById('FEPlugin_DatePicker')) {
+                creaSelezionaDate();
+            }
+        }, 2000);
+        // Monitora cambi di pagina (Angular route changes)
+        setInterval(function () {
+            if (window.location.hash !== lastHash) {
+                lastHash = window.location.hash;
+                setTimeout(function () {
+                    var Dal = document.getElementById('dal');
+                    var Al  = document.getElementById('al');
+                    if (Dal && Al && !document.getElementById('FEPlugin_DatePicker')) {
+                        creaSelezionaDate();
+                    }
+                }, 1500);
+            }
+        }, 500);
     }
+    autoAttivaDateSelector();
 
-    /* ========================================================================
-     *  INIT
-     * ====================================================================== */
-
-    function init() {
-        console.log(`${SCRIPT_NAME} v${VERSION} — Inizializzazione...`);
-
-        // Crea la toolbar
-        createToolbar();
-
-        // Setup shortcut da tastiera per date
-        setupDateKeyboard();
-
-        // Auto-applica le date (issue #3 — sempre attivo)
-        setupAutoDateApply();
-
-        console.log(`${SCRIPT_NAME} v${VERSION} — Pronto!`);
-    }
-
-    // Avvia quando il DOM è pronto
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', init);
-    } else {
-        // Piccolo delay per lasciare che Angular si inizializzi
-        setTimeout(init, 500);
-    }
-
-})();
+    log('FE-Utility v' + VERSION + ' (userscript) avviato - ' + new Date().toLocaleString());
