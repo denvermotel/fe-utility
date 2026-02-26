@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.95.1-alpha] — 2026-02-26
+
+### Fix
+- **Pulsante Stop non scompare**: la classe CSS `.fepBtn` imponeva `display:inline-block!important` che prevaleva sul `style.display='none'` (senza `!important`) impostato da `setRunning(false)`. Corretto usando `setProperty('display','none','important')`
+- **Pulsanti ℹ️ e ✕ coperti dalla scrollbar**: il TopRow con `overflow-x:auto` generava una scrollbar orizzontale che copriva i pulsanti a destra. Aumentato il padding destro del TopRow da 10px a 20px
+
 ## [0.95-alpha] — 2026-02-26
 
 ### Fix

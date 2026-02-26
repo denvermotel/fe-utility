@@ -3,7 +3,7 @@
 // @namespace      https://denvermotel.github.io/fe-utility/
 // @downloadURL    https://raw.githubusercontent.com/denvermotel/fe-utility/refs/heads/main/FE-Utility.user.js
 // @updateURL      https://raw.githubusercontent.com/denvermotel/fe-utility/refs/heads/main/FE-Utility.user.js
-// @version        0.95-alpha
+// @version        0.95.1-alpha
 // @description    Toolbox per ivaservizi.agenziaentrate.gov.it: scarica fatture, export Excel fatture/corrispettivi, selettore date rapido
 // @author         denvermotel
 // @match          https://ivaservizi.agenziaentrate.gov.it/*
@@ -21,8 +21,12 @@
 // ==/UserScript==
 
 /**
- * FE-Utility - v0.95 alpha
+ * FE-Utility - v0.95.1 alpha
  * Userscript per il portale ivaservizi.agenziaentrate.gov.it
+ *
+ * Changelog 0.95.1α:
+ *   - FIX: Pulsante Stop non scompariva a fine operazione (CSS !important)
+ *   - FIX: Pulsanti ℹ️ e ✕ coperti dalla scrollbar (padding destro TopRow)
  *
  * Changelog 0.95α:
  *   - FIX #1: Errore download fatture (navigazione hash + pulsanti specifici)
@@ -44,7 +48,7 @@
     window._FEPlugin = true;
 
     /* ─── COSTANTI ───────────────────────────────────────────────── */
-    var VERSION = '0.95\u03B1';  // 0.95α
+    var VERSION = '0.95.1\u03B1';  // 0.95.1α
     var INSTRUCTIONS_URL = 'https://denvermotel.github.io/fe-utility/';
 
     /* ─── UTILITY NUMERI ────────────────────────────────────────── */
@@ -201,7 +205,7 @@
             'all:initial!important;' +
             'display:flex!important;flex-direction:row!important;flex-wrap:nowrap!important;' +
             'align-items:center!important;gap:5px!important;' +
-            'padding:5px 10px!important;width:100%!important;box-sizing:border-box!important;' +
+            'padding:5px 20px 5px 10px!important;width:100%!important;box-sizing:border-box!important;' +
             'overflow-x:auto!important;}' +
             '#FEPlugin_Logo{' +
             'all:initial!important;' +
@@ -335,7 +339,7 @@
         _inCorso = on;
         _stop = false;
         var stopBtn = document.getElementById('btn_stop');
-        if (stopBtn) stopBtn.style.display = on ? 'block' : 'none';
+        if (stopBtn) stopBtn.style.setProperty('display', on ? 'inline-block' : 'none', 'important');
         ['btn_scaricaFE', 'btn_migliora', 'btn_corrispettivi'].forEach(function (id) {
             var el = document.getElementById(id);
             if (el) el.disabled = on;
