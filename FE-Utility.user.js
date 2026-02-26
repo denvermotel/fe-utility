@@ -4,12 +4,14 @@
 // @downloadURL    https://raw.githubusercontent.com/denvermotel/fe-utility/refs/heads/main/FE-Utility.user.js
 // @updateURL      https://raw.githubusercontent.com/denvermotel/fe-utility/refs/heads/main/FE-Utility.user.js
 // @version        0.95-alpha
-// @description    Toolbox per ivaservizi.agenziaentrate.gov.it: scarica fatture, export Excel fatture/corrispettivi, selettore date rapido, caricamento massivo in pagina
+// @description    Toolbox per ivaservizi.agenziaentrate.gov.it: scarica fatture, export Excel fatture/corrispettivi, selettore date rapido
 // @author         denvermotel
 // @match          https://ivaservizi.agenziaentrate.gov.it/*
 // @icon           https://www.agenziaentrate.gov.it/portale/favicon.ico
 // @grant          GM_download
 // @grant          GM_info
+// @grant          GM_setValue
+// @grant          GM_getValue
 // @grant          unsafeWindow
 // @run-at         document-idle
 // @noframes
@@ -17,24 +19,20 @@
 // @homepageURL    https://denvermotel.github.io/fe-utility/
 // @supportURL     https://github.com/denvermotel/fe-utility/issues
 // ==/UserScript==
-// FE-Utility — Toolbox per ivaservizi.agenziaentrate.gov.it
-// Copyright (C) 2026  denvermotel
-//
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-//
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with this program. If not, see <https://www.gnu.org/licenses/>.
-//
-// Source code: https://github.com/denvermotel/fe-utility
 
+/**
+ * FE-Utility - v0.95 alpha
+ * Userscript per il portale ivaservizi.agenziaentrate.gov.it
+ *
+ * Changelog 0.95α:
+ *   - FIX #1: Errore download fatture (navigazione hash + pulsanti specifici)
+ *   - FIX #2: Solo 50 fatture/corrispettivi (rimossa trySetAllOnOnePage,
+ *             iterazione pagine reale via setPage)
+ *   - FIX #3: Selettore date sempre attivo (auto-attivazione)
+ *   - NEW: Storage Tampermonkey (GM_setValue/GM_getValue)
+ *   - NEW: Link istruzioni (ℹ️), tab riapertura barra
+ */
+(function () {
     'use strict';
 
     /* ─── ANTI-DOPPIO AVVIO ─────────────────────────────────────── */
@@ -46,7 +44,7 @@
     window._FEPlugin = true;
 
     /* ─── COSTANTI ───────────────────────────────────────────────── */
-    var VERSION = '0.95\u03B1';
+    var VERSION = '0.95\u03B1';  // 0.95α
     var INSTRUCTIONS_URL = 'https://denvermotel.github.io/fe-utility/';
 
     /* ─── UTILITY NUMERI ────────────────────────────────────────── */
@@ -74,37 +72,49 @@
 
     function pad2(n) { return String(n).padStart(2, '0'); }
 
-    /* ─── STORAGE (usa localStorage invece di chrome.storage) ───── */
+    /* ─── STORAGE (GM_setValue/GM_getValue con fallback localStorage) ─ */
     var STORAGE_PREFIX = 'FEPlugin_';
+    var _useGM = (typeof GM_setValue === 'function' && typeof GM_getValue === 'function');
 
     function storageGet(key, def) {
-        try { var v = localStorage.getItem(STORAGE_PREFIX + key); return v !== null ? JSON.parse(v) : def; }
-        catch (e) { return def; }
+        try {
+            if (_useGM) {
+                var v = GM_getValue(STORAGE_PREFIX + key);
+                return (v !== undefined && v !== null) ? v : def;
+            }
+            var v2 = localStorage.getItem(STORAGE_PREFIX + key);
+            return v2 !== null ? JSON.parse(v2) : def;
+        } catch (e) { return def; }
     }
 
     function storageSet(key, val) {
-        try { localStorage.setItem(STORAGE_PREFIX + key, JSON.stringify(val)); } catch (e) { }
+        try {
+            if (_useGM) { GM_setValue(STORAGE_PREFIX + key, val); return; }
+            localStorage.setItem(STORAGE_PREFIX + key, JSON.stringify(val));
+        } catch (e) { }
     }
 
     /* ─── ANGULAR HELPERS ───────────────────────────────────────── */
-    function getAngular() { return window.angular; }
+    var _win = (typeof unsafeWindow !== 'undefined') ? unsafeWindow : window;
+    function getAngular() { return _win.angular; }
 
     /**
      * Cerca lo scope AngularJS che contiene vm.pager.
      * Funziona sia sulla pagina fatture che corrispettivi.
      */
     function getVmScope() {
-        if (!getAngular()) return null;
+        var ng = getAngular();
+        if (!ng) return null;
         // Cerca prima dalla nav di paginazione
         var nav = document.querySelector('nav[aria-label*="aginaz"]');
         if (nav) {
-            var s = angular.element(nav).scope();
+            var s = ng.element(nav).scope();
             while (s) { if (s.vm && s.vm.pager) return s; s = s.$parent; }
         }
         // Fallback: cerca dalla prima riga ng-repeat
         var row = document.querySelector('[data-ng-repeat*="vm.items"]');
         if (row) {
-            var s2 = angular.element(row).scope();
+            var s2 = ng.element(row).scope();
             while (s2) { if (s2.vm && s2.vm.pager) return s2; s2 = s2.$parent; }
         }
         return null;
@@ -140,79 +150,6 @@
                 }
             }
             resolve();
-        });
-    }
-
-    /**
-     * Tenta di portare tutti gli elementi su una sola pagina modificando pageSize
-     * nello scope Angular. Restituisce true se riuscito.
-     */
-    /**
-     * Carica tutte le fatture/corrispettivi in una singola pagina
-     * aumentando pageSize nello scope Angular.
-     *
-     * Strategia 1: modifica pager.pageSize via $apply (funziona se Angular non ha
-     *   un limite server-side sul pageSize).
-     * Strategia 2: intercetta la risposta $http modificando i dati del pager dopo
-     *   che Angular li ha ricevuti (unsafeWindow → accesso all'oggetto Angular reale).
-     *
-     * Restituisce Promise che si risolve con true se il caricamento massivo è
-     * stato avviato, false altrimenti.
-     */
-    function trySetAllOnOnePage() {
-        return new Promise(function (resolve) {
-            try {
-                var win = (typeof unsafeWindow !== 'undefined') ? unsafeWindow : window;
-                var ng = win.angular;
-                if (!ng) { resolve(false); return; }
-
-                var scope = getVmScope();
-                if (!scope || !scope.vm || !scope.vm.pager) { resolve(false); return; }
-
-                var pager = scope.vm.pager;
-                var total = pager.totalItems || (pager.totalPages * pager.pageSize) || 0;
-                if (pager.totalPages <= 1) { resolve(true); return; }
-
-                log('trySetAllOnOnePage: totalItems=' + total + ' pageSize=' + pager.pageSize);
-
-                // Imposta pageSize al totale elementi (o 9999 se non noto)
-                var newSize = total > 0 ? total + 10 : 9999;
-                scope.$apply(function () {
-                    pager.pageSize = newSize;
-                    pager.currentPage = 1;
-                    if (scope.vm.setPage) scope.vm.setPage(1);
-                    // Alcuni controller espongono vm.pageSize direttamente
-                    if (scope.vm.pageSize !== undefined) scope.vm.pageSize = newSize;
-                });
-
-                // Attendi che Angular aggiorni il DOM
-                setTimeout(function () {
-                    var newPages = getTotalPages();
-                    log('trySetAllOnOnePage dopo $apply: pagine=' + newPages);
-                    if (newPages <= 1) {
-                        resolve(true);
-                    } else {
-                        // Fallback: forza una nuova ricerca con pageSize nel query
-                        // (alcuni controller rileggono pageSize da vm.pager.pageSize)
-                        try {
-                            scope.$apply(function () {
-                                if (scope.vm.search) scope.vm.search();
-                                else if (scope.vm.cerca) scope.vm.cerca();
-                                else if (scope.vm.filter) scope.vm.filter();
-                            });
-                            setTimeout(function () {
-                                log('trySetAllOnOnePage dopo search: pagine=' + getTotalPages());
-                                resolve(getTotalPages() <= 1);
-                            }, 1200);
-                        } catch (e2) {
-                            resolve(false);
-                        }
-                    }
-                }, 1000);
-            } catch (e) {
-                log('trySetAllOnOnePage errore: ' + e);
-                resolve(false);
-            }
         });
     }
 
@@ -308,9 +245,7 @@
             'font-size:14px!important;text-decoration:none!important;cursor:pointer!important;' +
             'border-radius:4px!important;background:rgba(255,255,255,0.1)!important;' +
             'flex-shrink:0!important;transition:background .15s!important;margin-left:4px!important;}' +
-            '#FEPlugin_InfoLink:hover{background:rgba(255,255,255,0.25)!important;}' +
-            '#FEPlugin_DatePicker{background:#e8f5e9;border:1px solid #2e7d32;border-radius:6px;' +
-            'padding:10px;margin-top:8px;font-size:12px;}';
+            '#FEPlugin_InfoLink:hover{background:rgba(255,255,255,0.25)!important;}';
         document.head.appendChild(stile);
 
         var p = document.createElement('div');
@@ -391,45 +326,7 @@
         if (el) el.textContent = msg;
     }
 
-    function log(msg) { console.log('[FE-Utility]', msg); }
-
-    /* ─── GM DOWNLOAD HELPER ────────────────────────────────────── */
-    /**
-     * Scarica un Blob come file XLS.
-     *
-     * NOTA: GM_download non supporta blob: URL generati nel contesto della pagina
-     * (violazione cross-origin). Usiamo invece un data: URI (base64) che è
-     * completamente self-contained e funziona sia con che senza Tampermonkey.
-     * La coda _dlQueue serializza i download per evitare il blocco popup.
-     */
-    var _dlQueue = [], _dlBusy = false;
-
-    function gmDownload(filename, blob) {
-        _dlQueue.push({ filename: filename, blob: blob });
-        if (!_dlBusy) _dlPump();
-    }
-
-    function _dlPump() {
-        if (_dlQueue.length === 0) { _dlBusy = false; return; }
-        _dlBusy = true;
-        var item = _dlQueue.shift();
-        var reader = new FileReader();
-        reader.onload = function () {
-            var dataUrl = reader.result; // "data:application/vnd.ms-excel;base64,..."
-            var a = document.createElement('a');
-            a.href = dataUrl;
-            a.download = item.filename;
-            a.style.display = 'none';
-            document.body.appendChild(a);
-            a.click();
-            setTimeout(function () {
-                if (a.parentNode) a.parentNode.removeChild(a);
-                setTimeout(_dlPump, 600); // piccola pausa tra download successivi
-            }, 200);
-        };
-        reader.readAsDataURL(item.blob);
-    }
-
+    function log(msg) { console.log('[FEPlugin]', msg); }
 
     var _stop = false;
     var _inCorso = false;
@@ -459,22 +356,17 @@
         }
         if (_inCorso) return;
         setRunning(true);
-        setProgress(0, 'Tentativo caricamento massivo in pagina...');
+        setProgress(0, 'Raccolta link fatture (tutte le pagine)...');
 
-        // Tenta di portare tutto su una pagina (ora restituisce Promise)
-        trySetAllOnOnePage().then(function (tuttaInPagina) {
-            if (_stop) { setRunning(false); return; }
-            var delay = tuttaInPagina ? 800 : 100;
-            setProgress(5, tuttaInPagina
-                ? '✓ Caricamento massivo riuscito. Raccolta link...'
-                : 'Raccolta link da tutte le pagine...');
-            setTimeout(function () {
-                raccogliLinkTuttiPagine(1, getTotalPages(), [], function (links) {
-                    if (_stop) { setRunning(false); return; }
-                    setStatus('▶ ' + links.length + ' fatture trovate. Avvio download...');
-                    scaricaFattura(links, 0);
-                });
-            }, delay);
+        // Vai a pagina 1 e itera tutte le pagine reali
+        setPage(1).then(function () {
+            var totPagine = getTotalPages();
+            log('Download fatture: ' + totPagine + ' pagine da scorrere');
+            raccogliLinkTuttiPagine(1, totPagine, [], function (links) {
+                if (_stop) { setRunning(false); return; }
+                setStatus('\u25B6 ' + links.length + ' fatture trovate. Avvio download...');
+                scaricaFattura(links, 0);
+            });
         });
     }
 
@@ -501,24 +393,16 @@
     }
 
     /**
-     * Aspetta che la pagina di dettaglio fattura sia caricata (per download).
-     * Il dettaglio è pronto quando ci sono almeno 3 btn-primary (logout + download + meta).
+     * Aspetta che la pagina di dettaglio fattura sia caricata (contesto DOWNLOAD).
+     * Il dettaglio è pronto quando c'è il pulsante "Download file fattura".
      */
     function aspettaDettaglioDownload(resolve, ms) {
         ms = ms || 0;
-        if (ms > 10000) { resolve(false); return; }
-        // Pronto quando: c'è il pulsante download fattura OPPURE il panel-body con strong.ng-binding
+        if (ms > 6000) { resolve(false); return; }
         var btns = document.getElementsByClassName('btn btn-primary');
+        // Verifica che ci sia il pulsante Download file fattura
         for (var i = 0; i < btns.length; i++) {
-            var t = btns[i].innerText || '';
-            if (t.indexOf('Download file fattura') > -1 || t.indexOf('Scarica') > -1) {
-                resolve(true); return;
-            }
-        }
-        // Fallback: pagina dettaglio caricata se ci sono almeno 3 strong.ng-binding
-        var strongs = document.querySelectorAll('strong.ng-binding');
-        if (strongs.length >= 3 && window.location.hash.indexOf('/dettaglio/') > -1) {
-            resolve(true); return;
+            if (btns[i].innerText.indexOf('Download file fattura') > -1) { resolve(true); return; }
         }
         setTimeout(function () { aspettaDettaglioDownload(resolve, ms + 200); }, 200);
     }
@@ -566,21 +450,19 @@
                 var rifiutata = document.body.innerText.indexOf('rifiutata') > -1;
 
                 if (!rifiutata) {
-                    // Cerca il pulsante download principale (XML/P7M)
-                    // Il testo varia: "Download file fattura" / "Scarica file fattura" / simili
-                    var btnDownload = null, btnMeta = null;
+                    // Scarica file fattura (il primo btn con "Download file fattura")
                     for (var i = 0; i < btns.length; i++) {
-                        var t = (btns[i].innerText || '').toLowerCase();
-                        if (!btnMeta && t.indexOf('meta') > -1) { btnMeta = btns[i]; }
-                        else if (!btnDownload && (t.indexOf('download') > -1 || t.indexOf('scarica') > -1) && t.indexOf('meta') === -1) {
-                            btnDownload = btns[i];
+                        if (btns[i].innerText.indexOf('Download file fattura') > -1 &&
+                            btns[i].innerText.indexOf('meta') === -1) {
+                            btns[i].click(); break;
                         }
                     }
-                    if (btnDownload) { btnDownload.click(); }
                     // Scarica meta-dati (dopo breve pausa)
                     setTimeout(function () {
-                        if (btnMeta) { btnMeta.click(); }
-                    }, 400);
+                        for (var j = 0; j < btns.length; j++) {
+                            if (btns[j].innerText.indexOf('meta') > -1) { btns[j].click(); break; }
+                        }
+                    }, 300);
 
                     // Codifica stato
                     if (statoSdi.indexOf('accettata') > -1) codiceStato = 3;
@@ -637,50 +519,6 @@
          bollo virtuale: p con testo "Sì" dentro div data-ng-show con bolloVirtuale
     ═══════════════════════════════════════════════════════════════ */
 
-    /**
-     * Resetta la paginazione Angular al default (50 per pagina) e restituisce
-     * il numero reale di pagine. Necessario perché trySetAllOnOnePage() al boot
-     * può aver forzato pageSize=9999 → totalPages=1 anche se i dati reali
-     * richiedono più pagine. Il reset forza Angular a ricalcolare.
-     */
-    function resetPaginazione(callback) {
-        var scope = getVmScope();
-        if (!scope || !scope.vm || !scope.vm.pager) {
-            callback(getTotalPages());
-            return;
-        }
-        var pager = scope.vm.pager;
-        var DEFAULT_PAGE_SIZE = 50;
-
-        // Se il pageSize è già 50 o meno, la paginazione è intatta
-        if (pager.pageSize <= DEFAULT_PAGE_SIZE) {
-            callback(getTotalPages());
-            return;
-        }
-
-        log('resetPaginazione: pageSize attuale=' + pager.pageSize + ' → reset a ' + DEFAULT_PAGE_SIZE);
-
-        // Calcola il numero reale di pagine dal totalItems
-        var totalItems = pager.totalItems || 0;
-        var paginePreviste = totalItems > 0 ? Math.ceil(totalItems / DEFAULT_PAGE_SIZE) : getTotalPages();
-
-        scope.$apply(function () {
-            pager.pageSize = DEFAULT_PAGE_SIZE;
-            pager.currentPage = 1;
-            if (scope.vm.pageSize !== undefined) scope.vm.pageSize = DEFAULT_PAGE_SIZE;
-            if (scope.vm.setPage) scope.vm.setPage(1);
-        });
-
-        // Attendi che Angular aggiorni il DOM
-        setTimeout(function () {
-            var pagineEffettive = getTotalPages();
-            // Usa il valore più alto tra quello calcolato e quello rilevato dal DOM
-            var totPagine = Math.max(pagineEffettive, paginePreviste, 1);
-            log('resetPaginazione completato: pagine=' + totPagine + ' (DOM=' + pagineEffettive + ', calcolate=' + paginePreviste + ')');
-            callback(totPagine);
-        }, 1000);
-    }
-
     function avviaExportFatture() {
         var hash = window.location.hash;
         if (hash.indexOf('/fatture/') === -1) {
@@ -697,11 +535,9 @@
         }
 
         setRunning(true);
-        setProgress(0, 'Ripristino paginazione e raccolta lista fatture...');
-
-        // Reset paginazione al default (50/pag) per iterare correttamente TUTTE le pagine
-        resetPaginazione(function (totPagine) {
-            raccogliListaFatture(1, totPagine, [], includiTransfrontaliere, function (voci) {
+        setProgress(0, 'Raccolta lista fatture...');
+        setTimeout(function () {
+            raccogliListaFatture(1, getTotalPages(), [], includiTransfrontaliere, function (voci) {
                 if (_stop) { setRunning(false); return; }
                 if (voci.length === 0) {
                     setRunning(false);
@@ -716,7 +552,7 @@
                     }
                 });
             });
-        });
+        }, 300);
     }
 
     /**
@@ -1106,9 +942,13 @@
         var filename = (piva ? piva + '_' : '') + sezione + '.xls';
 
         var blob = new Blob([xls], { type: 'application/vnd.ms-excel;charset=utf-8' });
-        gmDownload(filename, blob);
+        var url  = URL.createObjectURL(blob);
+        var a    = document.createElement('a');
+        a.href   = url; a.download = filename;
+        a.style.display = 'none';
+        document.body.appendChild(a); a.click();
+        setTimeout(function () { a.remove(); URL.revokeObjectURL(url); }, 3000);
 
-        setRunning(false);
         var nFatture = Object.keys(fattureContate).length;
         setProgress(100, '✅ Excel: ' + filename + ' — ' + nFatture + ' fatture, ' + righe.length + ' righe IVA');
         var prow = document.getElementById('FEPlugin_BottomRow');
@@ -1139,11 +979,9 @@
         }
         if (_inCorso) return;
         setRunning(true);
-        setProgress(0, 'Ripristino paginazione e raccolta lista corrispettivi...');
-
-        // Reset paginazione al default (50/pag) per iterare correttamente TUTTE le pagine
-        resetPaginazione(function (totPagine) {
-            raccogliListaCorr(1, totPagine, [], function (voci) {
+        setProgress(0, 'Raccolta lista corrispettivi...');
+        setTimeout(function () {
+            raccogliListaCorr(1, getTotalPages(), [], function (voci) {
                 if (_stop) { setRunning(false); return; }
                 if (voci.length === 0) {
                     setRunning(false);
@@ -1154,7 +992,7 @@
                 setStatus('▶ ' + voci.length + ' corrispettivi. Lettura dettagli...');
                 analizzaDettagliCorr(voci, 0, {});
             });
-        });
+        }, 300);
     }
 
     /**
@@ -1465,8 +1303,15 @@
                 "</table>";
 
             var blob = new Blob([xls], { type: 'application/vnd.ms-excel;charset=utf-8' });
-            gmDownload((piva ? piva + '_' : '') + matricola + '.xls', blob);
+            var url  = URL.createObjectURL(blob);
+            var a    = document.createElement('a');
+            a.href   = url;
+            a.download = (piva ? piva + '_' : '') + matricola + '.xls';
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
             nFile++;
+            setTimeout(function () { a.remove(); URL.revokeObjectURL(url); }, 3000);
         });
 
         setProgress(100, '✅ Generati ' + nFile + ' file Excel (' + matricole.join(', ') + ')');
@@ -1501,7 +1346,7 @@
         for (var a = annoCorrente; a >= 2019; a--) anni.push(a);
 
         annoEl.innerHTML = [
-            '<b style="color:#1b3a2b">&#128197; FE-Utility: Selettore date</b>&nbsp;',
+            '<b style="color:#1b3a2b">Plugin FE: Selettore date</b>&nbsp;',
             'Anno: <input type="number" id="FEPlugin_Anno" value="' + annoCorrente + '" min="2019" max="' + annoCorrente + '" style="width:60px">',
             '&nbsp;<select id="FEPlugin_PeriodSel" style="font-size:12px">',
             '<option value="">-- Seleziona periodo --</option>',
@@ -1589,39 +1434,26 @@
     creaPanel();
     setStatus('Pronto. Scegli un\'azione dal menu.');
 
-    // Tenta subito di espandere la paginazione su una pagina sola
-    setTimeout(function () {
-        trySetAllOnOnePage().then(function (ok) {
-            if (ok) setStatus('✓ Tutte le fatture caricate in pagina. Scegli un\'azione.');
-        });
-    }, 800);
-
-    // AUTO-ATTIVAZIONE SELETTORE DATE (issue #3)
-    // Attiva automaticamente il selettore date quando i campi sono presenti
+    // Auto-attivazione selettore date quando i campi #dal e #al sono presenti
     function autoAttivaDateSelector() {
-        var lastHash = window.location.hash;
-        // Controlla al primo caricamento
-        setTimeout(function () {
-            var Dal = document.getElementById('dal');
-            var Al  = document.getElementById('al');
-            if (Dal && Al && !document.getElementById('FEPlugin_DatePicker')) {
-                creaSelezionaDate();
-            }
-        }, 2000);
-        // Monitora cambi di pagina (Angular route changes)
-        setInterval(function () {
-            if (window.location.hash !== lastHash) {
-                lastHash = window.location.hash;
-                setTimeout(function () {
-                    var Dal = document.getElementById('dal');
-                    var Al  = document.getElementById('al');
-                    if (Dal && Al && !document.getElementById('FEPlugin_DatePicker')) {
-                        creaSelezionaDate();
-                    }
-                }, 1500);
-            }
-        }, 500);
+        var dal = document.getElementById('dal');
+        var al  = document.getElementById('al');
+        if (dal && al && !document.getElementById('FEPlugin_DatePicker')) {
+            creaSelezionaDate();
+        }
     }
-    autoAttivaDateSelector();
 
-    log('FE-Utility v' + VERSION + ' (userscript) avviato - ' + new Date().toLocaleString());
+    // Esegui subito e monitora cambi di route Angular
+    setTimeout(autoAttivaDateSelector, 1000);
+    var _lastHash = window.location.hash;
+    setInterval(function () {
+        var h = window.location.hash;
+        if (h !== _lastHash) {
+            _lastHash = h;
+            setTimeout(autoAttivaDateSelector, 800);
+        }
+    }, 500);
+
+    log('FE-Utility v' + VERSION + ' avviato - ' + new Date().toLocaleString());
+
+})(); // fine IIFE

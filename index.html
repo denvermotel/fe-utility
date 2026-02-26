@@ -603,12 +603,9 @@
             <span class="title">📄 FE-Utility v0.95α</span>
             <span class="mock-btn">⬇ Scarica fatture</span>
             <span class="mock-btn">📊 Fatture→Excel</span>
-            <span style="color:var(--green-200);font-size:11px;font-weight:600;">Date:</span>
-            <span class="mock-select">2026</span>
-            <span class="mock-select">I Trim (Gen-Mar)</span>
-            <span class="mock-btn">📅 Applica</span>
+			<span class="mock-btn">📈 Corrispettivi → Excel</span>
+			<span class="mock-btn">📅 Date</span>		
             <span class="spacer"></span>
-            <span class="mock-status">✅ Pronto</span>
             <span class="mock-info">ℹ️</span>
             <span class="mock-close">✕</span>
         </div>
@@ -732,64 +729,46 @@
             <span class="section-label">Per sviluppatori</span>
             <h2>Note tecniche</h2>
 
-            <h3>Compatibilità browser</h3>
-            <table class="shortcuts-table">
-                <thead>
-                    <tr><th>Browser</th><th>Estensione</th><th>Stato</th></tr>
-                </thead>
-                <tbody>
-                    <tr><td>Chrome / Chromium</td><td>Tampermonkey</td><td>✅ Testato</td></tr>
-                    <tr><td>Firefox</td><td>Tampermonkey</td><td>✅ Testato</td></tr>
-                    <tr><td>Firefox</td><td>Greasemonkey 4</td><td>✅ Compatibile</td></tr>
-                    <tr><td>Edge</td><td>Tampermonkey</td><td>✅ Compatibile</td></tr>
-                    <tr><td>Safari</td><td>Userscripts</td><td>⚠️ Non testato</td></tr>
-                </tbody>
-            </table>
-
-            <h3>Isolamento CSS</h3>
-            <p>La barra usa <code>all: initial !important</code> su tutti gli elementi per resistere ai CSS Bootstrap del portale e rimanere sempre visibile e correttamente formattata.</p>
-
-            <h3>Download files</h3>
-            <p>Lo script usa <code>GM_download</code> (quando disponibile) per evitare il blocco popup del browser sui download multipli. Il fallback al metodo <code>anchor.click()</code> è automatico.</p>
-
             <h3>Privacy by design</h3>
             <p>Tutte le elaborazioni avvengono esclusivamente client-side nel tuo browser. Nessun dato viene raccolto, salvato o trasmesso a server esterni.</p>
         </div>
     </section>
 
-    <!-- ─── CHANGELOG ─────────────────────────────────── -->
-    <section id="changelog">
-        <div class="container">
-            <span class="section-label">Storico</span>
-            <h2>Changelog</h2>
+    <!-- ═══ CHANGELOG ═══ -->
+    <div class="section">
+        <h2>📝 Changelog</h2>
 
-            <div class="changelog-entry">
-                <div class="changelog-version">
-                    v0.95 alpha
-                    <span class="changelog-tag">Latest</span>
-                </div>
-                <ul class="changelog-list">
-                    <li><span class="changelog-tag fix">FIX</span> #1 — Download fatture: corretto conflitto nomi funzione, ripristinata navigazione hash ai dettagli</li>
-                    <li><span class="changelog-tag fix">FIX</span> #2 — Excel fatture/corrispettivi >50 record: aggiunta <code>resetPaginazione()</code> che ripristina pageSize=50 prima della raccolta, poi itera tutte le pagine</li>
-                    <li><span class="changelog-tag fix">FIX</span> #3 — Selettore date sempre attivo automaticamente al caricamento e ad ogni cambio di route Angular</li>
-                    <li><span class="changelog-tag new">NEW</span> Link istruzioni (ℹ️) nella barra, vicino alla X di chiusura</li>
-                    <li><span class="changelog-tag new">NEW</span> Tab riapertura barra dopo chiusura con ✕</li>
-                    <li><span class="changelog-tag fix">FIX</span> Ripristinate sezioni Corrispettivi e Fatture → Excel complete dalla 0.94γ (navigazione dettaglio, aliquote, raggruppamento per matricola)</li>
-                </ul>
+        <div class="changelog-entry">
+            <div class="changelog-version">
+                v0.95 alpha
+                <span class="changelog-tag">Latest</span>
             </div>
-
-            <div class="changelog-entry" style="opacity:0.7">
-                <div class="changelog-version">v0.94 gamma</div>
-                <ul class="changelog-list">
-                    <li>Versione iniziale pubblica</li>
-                    <li>Export fatture → Excel con dettaglio IVA e multi-aliquota</li>
-                    <li>Export corrispettivi → Excel per matricola</li>
-                    <li>Selettore date rapido con scorciatoie tastiera</li>
-                    <li>Download massivo XML + metadati</li>
-                </ul>
-            </div>
+            <ul class="changelog-list">
+                <li><span class="changelog-tag fix">FIX</span> #1 — Download fatture: corretto conflitto nomi funzione, ripristinata navigazione hash ai dettagli</li>
+                <li><span class="changelog-tag fix">FIX</span> #2 — Excel &gt;50 record: <strong>rimossa <code>trySetAllOnOnePage()</code></strong> che corrompeva il paginatore Angular. Ora tutte le funzioni iterano le pagine reali via <code>setPage()</code></li>
+                <li><span class="changelog-tag fix">FIX</span> #3 — Selettore date sempre attivo automaticamente al caricamento e ad ogni cambio di route</li>
+                <li><span class="changelog-tag new">NEW</span> Storage Tampermonkey (<code>GM_setValue</code>/<code>GM_getValue</code>) per dati persistenti tra sessioni</li>
+                <li><span class="changelog-tag new">NEW</span> Link istruzioni (ℹ️) nella barra + tab riapertura dopo chiusura</li>
+            </ul>
         </div>
-    </section>
+
+        <div class="changelog-entry">
+            <div class="changelog-version">v0.94 gamma</div>
+            <ul class="changelog-list">
+                <li>Risolto bug duplicati corrispettivi (3 copie Angular ng-repeat)</li>
+                <li>BUG: <code>trySetAllOnOnePage()</code> impediva lettura oltre 50 record</li>
+            </ul>
+        </div>
+
+        <div class="changelog-entry">
+            <div class="changelog-version">v0.93 beta</div>
+            <ul class="changelog-list">
+                <li>Prima versione pubblica</li>
+            </ul>
+        </div>
+    </div>
+
+</div>
 
     <!-- ─── FOOTER ────────────────────────────────────── -->
     <footer>
