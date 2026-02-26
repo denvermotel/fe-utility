@@ -3,15 +3,15 @@
 ## [0.95-alpha] — 2026-02-26
 
 ### Fix
-- **#1 — Errore download fatture**: Corretto il conflitto di nomi `aspettaDettaglioFattura` (rinominata `aspettaDettaglioDownload` per il contesto download); ripristinata la navigazione via hash alle pagine dettaglio con riconoscimento pulsanti "Download file fattura" / "Scarica" e metadati
-- **#2 — Solo 50 fatture visualizzate**: Ripristinato `trySetAllOnOnePage()` che modifica `pager.pageSize` nello scope Angular per caricare tutte le fatture/corrispettivi in una sola pagina; fallback multi-pagina con `raccogliLinkTuttiPagine()` se il caricamento massivo non riesce
-- **#3 — Selettore date manuale**: Il selettore date ora si attiva automaticamente al caricamento della pagina (se i campi `#dal` e `#al` sono presenti) e si riattiva ad ogni cambio di route Angular
+- **#1 — Errore download fatture**: Corretto conflitto di nomi `aspettaDettaglioFattura` (rinominata `aspettaDettaglioDownload` per il contesto download); ripristinata navigazione hash ai dettagli
+- **#2 — Solo 50 fatture/corrispettivi esportati in Excel**: La funzione `trySetAllOnOnePage()` all'avvio modificava `pager.pageSize` a 9999, facendo apparire `totalPages=1` anche con >50 record. Aggiunta `resetPaginazione()` che ripristina pageSize=50 prima della raccolta dati per Excel, poi itera correttamente tutte le pagine via `setPage()`. Il download massivo (che usa `raccogliLinkTuttiPagine`) non era affetto perché già gestiva la paginazione separatamente
+- **#3 — Selettore date manuale**: Si attiva automaticamente al caricamento e ad ogni cambio di route Angular
 
 ### Nuovo
-- **Link istruzioni (ℹ️)** nella barra, posizionato a destra vicino alla X — apre la pagina GitHub Pages
-- **Pagina istruzioni** su GitHub Pages (`index.html`) con guida installazione, funzionalità, scorciatoie, changelog
-- **Tab riapertura**: Chiudendo la barra con ✕ appare un tab "📄 FE-Utility" per riaprirla senza ricaricare la pagina
-- **Metadata aggiornati**: `@homepageURL`, `@supportURL`, `@namespace` puntano a GitHub Pages
+- **`resetPaginazione(callback)`**: Nuova funzione che ripristina `pager.pageSize` al default (50), ricalcola il numero reale di pagine da `pager.totalItems`, e attende l'aggiornamento Angular prima di chiamare il callback. Usata da `avviaExportFatture()` e `avviaAnalisiCorrispettivi()`
+- **Link istruzioni (ℹ️)** nella barra, posizionato a destra vicino alla X
+- **Tab riapertura** barra dopo chiusura con ✕
+- **Metadata aggiornati**: `@homepageURL`, `@supportURL`, `@namespace`
 
 ### Ripristinato (dalla 0.94γ)
 - **Corrispettivi → Excel**: Sezione completa con navigazione dettaglio per aliquota, raggruppamento per matricola, colonne dinamiche

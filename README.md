@@ -1,5 +1,8 @@
 # 📄 FE-Utility
 
+**VERSIONE ANCORA IN FASE DI SVILUPPO E TEST**
+Funziona correttamente il selettore data e lo scarico massivo di fatture.
+
 **Toolbox per il portale ivaservizi.agenziaentrate.gov.it**
 
 Userscript per Tampermonkey / Greasemonkey che aggiunge una barra degli strumenti al portale della fatturazione elettronica dell'Agenzia delle Entrate, con funzioni di export Excel e download massivo.
@@ -34,7 +37,7 @@ Userscript per Tampermonkey / Greasemonkey che aggiunge una barra degli strument
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│ 📄 FE-Utility v0.94β │ ⬇ Scarica fatture │ 📊 Fatture→Excel │ ...  │
+│ 📄 FE-Utility v0.95alpha │ ⬇ Scarica fatture │ 📊 Fatture→Excel │ ...  │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 

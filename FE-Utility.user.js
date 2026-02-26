@@ -637,6 +637,50 @@
          bollo virtuale: p con testo "Sì" dentro div data-ng-show con bolloVirtuale
     ═══════════════════════════════════════════════════════════════ */
 
+    /**
+     * Resetta la paginazione Angular al default (50 per pagina) e restituisce
+     * il numero reale di pagine. Necessario perché trySetAllOnOnePage() al boot
+     * può aver forzato pageSize=9999 → totalPages=1 anche se i dati reali
+     * richiedono più pagine. Il reset forza Angular a ricalcolare.
+     */
+    function resetPaginazione(callback) {
+        var scope = getVmScope();
+        if (!scope || !scope.vm || !scope.vm.pager) {
+            callback(getTotalPages());
+            return;
+        }
+        var pager = scope.vm.pager;
+        var DEFAULT_PAGE_SIZE = 50;
+
+        // Se il pageSize è già 50 o meno, la paginazione è intatta
+        if (pager.pageSize <= DEFAULT_PAGE_SIZE) {
+            callback(getTotalPages());
+            return;
+        }
+
+        log('resetPaginazione: pageSize attuale=' + pager.pageSize + ' → reset a ' + DEFAULT_PAGE_SIZE);
+
+        // Calcola il numero reale di pagine dal totalItems
+        var totalItems = pager.totalItems || 0;
+        var paginePreviste = totalItems > 0 ? Math.ceil(totalItems / DEFAULT_PAGE_SIZE) : getTotalPages();
+
+        scope.$apply(function () {
+            pager.pageSize = DEFAULT_PAGE_SIZE;
+            pager.currentPage = 1;
+            if (scope.vm.pageSize !== undefined) scope.vm.pageSize = DEFAULT_PAGE_SIZE;
+            if (scope.vm.setPage) scope.vm.setPage(1);
+        });
+
+        // Attendi che Angular aggiorni il DOM
+        setTimeout(function () {
+            var pagineEffettive = getTotalPages();
+            // Usa il valore più alto tra quello calcolato e quello rilevato dal DOM
+            var totPagine = Math.max(pagineEffettive, paginePreviste, 1);
+            log('resetPaginazione completato: pagine=' + totPagine + ' (DOM=' + pagineEffettive + ', calcolate=' + paginePreviste + ')');
+            callback(totPagine);
+        }, 1000);
+    }
+
     function avviaExportFatture() {
         var hash = window.location.hash;
         if (hash.indexOf('/fatture/') === -1) {
@@ -653,9 +697,11 @@
         }
 
         setRunning(true);
-        setProgress(0, 'Raccolta lista fatture...');
-        setTimeout(function () {
-            raccogliListaFatture(1, getTotalPages(), [], includiTransfrontaliere, function (voci) {
+        setProgress(0, 'Ripristino paginazione e raccolta lista fatture...');
+
+        // Reset paginazione al default (50/pag) per iterare correttamente TUTTE le pagine
+        resetPaginazione(function (totPagine) {
+            raccogliListaFatture(1, totPagine, [], includiTransfrontaliere, function (voci) {
                 if (_stop) { setRunning(false); return; }
                 if (voci.length === 0) {
                     setRunning(false);
@@ -670,7 +716,7 @@
                     }
                 });
             });
-        }, 300);
+        });
     }
 
     /**
@@ -1062,6 +1108,7 @@
         var blob = new Blob([xls], { type: 'application/vnd.ms-excel;charset=utf-8' });
         gmDownload(filename, blob);
 
+        setRunning(false);
         var nFatture = Object.keys(fattureContate).length;
         setProgress(100, '✅ Excel: ' + filename + ' — ' + nFatture + ' fatture, ' + righe.length + ' righe IVA');
         var prow = document.getElementById('FEPlugin_BottomRow');
@@ -1092,9 +1139,11 @@
         }
         if (_inCorso) return;
         setRunning(true);
-        setProgress(0, 'Raccolta lista corrispettivi...');
-        setTimeout(function () {
-            raccogliListaCorr(1, getTotalPages(), [], function (voci) {
+        setProgress(0, 'Ripristino paginazione e raccolta lista corrispettivi...');
+
+        // Reset paginazione al default (50/pag) per iterare correttamente TUTTE le pagine
+        resetPaginazione(function (totPagine) {
+            raccogliListaCorr(1, totPagine, [], function (voci) {
                 if (_stop) { setRunning(false); return; }
                 if (voci.length === 0) {
                     setRunning(false);
@@ -1105,7 +1154,7 @@
                 setStatus('▶ ' + voci.length + ' corrispettivi. Lettura dettagli...');
                 analizzaDettagliCorr(voci, 0, {});
             });
-        }, 300);
+        });
     }
 
     /**

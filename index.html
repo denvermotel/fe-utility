@@ -769,15 +769,12 @@
                     <span class="changelog-tag">Latest</span>
                 </div>
                 <ul class="changelog-list">
-                    <li><span class="changelog-tag fix">FIX</span> #1 — Download fatture: corretto conflitto nomi funzione, ripristinata navigazione hash ai dettagli con riconoscimento pulsanti download/metadati</li>
-                    <li><span class="changelog-tag fix">FIX</span> #2 — Paginazione: ripristinato caricamento massivo Angular (<code>trySetAllOnOnePage</code>) + fallback multi-pagina</li>
+                    <li><span class="changelog-tag fix">FIX</span> #1 — Download fatture: corretto conflitto nomi funzione, ripristinata navigazione hash ai dettagli</li>
+                    <li><span class="changelog-tag fix">FIX</span> #2 — Excel fatture/corrispettivi >50 record: aggiunta <code>resetPaginazione()</code> che ripristina pageSize=50 prima della raccolta, poi itera tutte le pagine</li>
                     <li><span class="changelog-tag fix">FIX</span> #3 — Selettore date sempre attivo automaticamente al caricamento e ad ogni cambio di route Angular</li>
                     <li><span class="changelog-tag new">NEW</span> Link istruzioni (ℹ️) nella barra, vicino alla X di chiusura</li>
-                    <li><span class="changelog-tag new">NEW</span> Pagina istruzioni su GitHub Pages</li>
                     <li><span class="changelog-tag new">NEW</span> Tab riapertura barra dopo chiusura con ✕</li>
-                    <li><span class="changelog-tag fix">FIX</span> Ripristinata sezione Corrispettivi → Excel completa (navigazione dettaglio, aliquote dinamiche, raggruppamento per matricola)</li>
-                    <li><span class="changelog-tag fix">FIX</span> Ripristinato Export Fatture → Excel a 3 fasi con lettura dettaglio IVA per aliquota</li>
-                    <li><span class="changelog-tag fix">FIX</span> Ripristinato download queue con data: URI (fix cross-origin GM_download)</li>
+                    <li><span class="changelog-tag fix">FIX</span> Ripristinate sezioni Corrispettivi e Fatture → Excel complete dalla 0.94γ (navigazione dettaglio, aliquote, raggruppamento per matricola)</li>
                 </ul>
             </div>
 
