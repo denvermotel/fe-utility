@@ -85,10 +85,10 @@ Si attiva automaticamente. Selettore periodo con scorciatoie tastiera:
 
 | Browser | Estensione | Stato |
 |---------|-----------|-------|
-| Chrome / Chromium | Tampermonkey | ✅ Testato |
-| Firefox | Tampermonkey | ✅ Testato |
-| Firefox | Greasemonkey 4 | ✅ Compatibile |
-| Edge | Tampermonkey | ✅ Compatibile |
+| Chrome / Chromium | Tampermonkey | 🔧 in fase di test |
+| Firefox | Tampermonkey | 🔧 in fase di test |
+| Firefox | Greasemonkey 4 | ❌ non testato |
+| Edge | Tampermonkey | 🔧 in fase di test |
 
 ---
 
