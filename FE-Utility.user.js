@@ -257,12 +257,11 @@
         p.innerHTML =
             '<div id="FEPlugin_TopRow">' +
                 '<span id="FEPlugin_Logo">&#128196; FE-Utility v' + VERSION + '</span>' +
-                '<button class="fepBtn fep-green"  id="btn_scaricaFE">&#11015; Scarica fatture</button>' +
-                '<button class="fepBtn fep-blue"   id="btn_migliora">&#128202; Fatture &#8594; Excel</button>' +
-                
+                '<button class="fepBtn fep-green" id="btn_scaricaFE">&#11015; Scarica fatture</button>' +
+                '<button class="fepBtn fep-blue" id="btn_migliora">&#128202; Fatture &#8594; Excel</button>' +
                 '<button class="fepBtn fep-orange" id="btn_corrispettivi">&#128200; Corrispettivi &#8594; Excel</button>' +
-                '<button class="fepBtn fep-grey"   id="btn_datePicker">&#128197; Date</button>' +
-                '<button class="fepBtn fep-red"    id="btn_stop" style="display:none!important">&#9209; Stop</button>' +
+                '<button class="fepBtn fep-grey" id="btn_datePicker">&#128197; Date</button>' +
+                '<button class="fepBtn fep-red" id="btn_stop" style="display:none!important">&#9209; Stop</button>' +
                 '<span style="all:initial!important;flex:1 1 auto!important;min-width:10px!important;"></span>' +
                 '<a id="FEPlugin_InfoLink" href="' + INSTRUCTIONS_URL + '" target="_blank" rel="noopener noreferrer" title="Istruzioni FE-Utility">&#8505;&#65039;</a>' +
                 '<button id="FEPlugin_X" style="all:initial;display:inline-flex;align-items:center;' +

@@ -21,7 +21,8 @@ Userscript per Tampermonkey / Greasemonkey che aggiunge una barra degli strument
 > Richiede **Tampermonkey** (Chrome/Edge/Firefox) o **Greasemonkey** (Firefox)
 
 1. Installa l'estensione del browser:
-   - [Tampermonkey per Chrome](https://chrome.google.com/webstore/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo)
+   - [Tampermonkey per Chrome](https://chromewebstore.google.com/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo)
+   - [Tampermonkey per Edge](https://microsoftedge.microsoft.com/addons/detail/tampermonkey/iikmkjmpaadaobahmlepeloendndfphd)
    - [Tampermonkey per Firefox](https://addons.mozilla.org/it/firefox/addon/tampermonkey/)
    - [Greasemonkey per Firefox](https://addons.mozilla.org/it/firefox/addon/greasemonkey/)
 
