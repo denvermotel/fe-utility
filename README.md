@@ -7,7 +7,6 @@ Userscript per Tampermonkey / Greasemonkey che aggiunge una barra degli strument
 [![Version](https://img.shields.io/badge/versione-0.95.1%20alpha-green)](#)
 [![License: GPL v3](https://img.shields.io/badge/licenza-GPL%20v3-blue)](https://www.gnu.org/licenses/gpl-3.0)
 [![Tampermonkey](https://img.shields.io/badge/Tampermonkey-compatibile-brightgreen)](https://www.tampermonkey.net/)
-[![Greasemonkey](https://img.shields.io/badge/Greasemonkey-compatibile-orange)](https://www.greasespot.net/)
 
 ---
 
