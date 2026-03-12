@@ -3,7 +3,7 @@
 // @namespace      https://denvermotel.github.io/fe-utility/
 // @downloadURL    https://raw.githubusercontent.com/denvermotel/fe-utility/refs/heads/main/FE-Utility.user.js
 // @updateURL      https://raw.githubusercontent.com/denvermotel/fe-utility/refs/heads/main/FE-Utility.user.js
-// @version        0.95.1-alpha
+// @version        0.95.2-alpha
 // @description    Toolbox per ivaservizi.agenziaentrate.gov.it: scarica fatture, export Excel fatture/corrispettivi, selettore date rapido
 // @author         denvermotel
 // @match          https://ivaservizi.agenziaentrate.gov.it/*
@@ -21,8 +21,17 @@
 // ==/UserScript==
 
 /**
- * FE-Utility - v0.95.1 alpha
+ * FE-Utility - v0.95.2 alpha
  * Userscript per il portale ivaservizi.agenziaentrate.gov.it
+ *
+ * Changelog 0.95.2α:
+ *   - FIX: Excel fatture sballato su Chrome/Edge — colonne lista rilevate
+ *     dinamicamente dagli header <th> anziché con indici hardcoded
+ *   - FIX: aspettaDettaglioFattura risolveva subito su Chrome (tabella lista
+ *     con header "Imponibile" ancora nel DOM); ora verifica panel-body + strongs
+ *   - FIX: Barra bloccata dopo export Excel (setRunning(false) mancante)
+ *   - FIX: Nome file Excel con P.IVA + periodo (es. 12345_010126-310326_emesse.xls)
+ *   - FIX: P.IVA letta da select/input/scope con fallback multipli
  *
  * Changelog 0.95.1α:
  *   - FIX: Pulsante Stop non scompariva a fine operazione (CSS !important)
@@ -48,7 +57,7 @@
     window._FEPlugin = true;
 
     /* ─── COSTANTI ───────────────────────────────────────────────── */
-    var VERSION = '0.95.1\u03B1';  // 0.95.1α
+    var VERSION = '0.95.2\u03B1';  // 0.95.2α
     var INSTRUCTIONS_URL = 'https://denvermotel.github.io/fe-utility/';
 
     /* ─── UTILITY NUMERI ────────────────────────────────────────── */
@@ -257,11 +266,12 @@
         p.innerHTML =
             '<div id="FEPlugin_TopRow">' +
                 '<span id="FEPlugin_Logo">&#128196; FE-Utility v' + VERSION + '</span>' +
-                '<button class="fepBtn fep-green" id="btn_scaricaFE">&#11015; Scarica fatture</button>' +
-                '<button class="fepBtn fep-blue" id="btn_migliora">&#128202; Fatture &#8594; Excel</button>' +
+                '<button class="fepBtn fep-green"  id="btn_scaricaFE">&#11015; Scarica fatture</button>' +
+                '<button class="fepBtn fep-blue"   id="btn_migliora">&#128202; Fatture &#8594; Excel</button>' +
+                
                 '<button class="fepBtn fep-orange" id="btn_corrispettivi">&#128200; Corrispettivi &#8594; Excel</button>' +
-                '<button class="fepBtn fep-grey" id="btn_datePicker">&#128197; Date</button>' +
-                '<button class="fepBtn fep-red" id="btn_stop" style="display:none!important">&#9209; Stop</button>' +
+                '<button class="fepBtn fep-grey"   id="btn_datePicker">&#128197; Date</button>' +
+                '<button class="fepBtn fep-red"    id="btn_stop" style="display:none!important">&#9209; Stop</button>' +
                 '<span style="all:initial!important;flex:1 1 auto!important;min-width:10px!important;"></span>' +
                 '<a id="FEPlugin_InfoLink" href="' + INSTRUCTIONS_URL + '" target="_blank" rel="noopener noreferrer" title="Istruzioni FE-Utility">&#8505;&#65039;</a>' +
                 '<button id="FEPlugin_X" style="all:initial;display:inline-flex;align-items:center;' +
@@ -343,6 +353,111 @@
             var el = document.getElementById(id);
             if (el) el.disabled = on;
         });
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       HELPER: RILEVAMENTO DINAMICO COLONNE LISTA FATTURE
+       Chrome/Edge hanno struttura DOM diversa da Firefox
+       (colonne Angular template assenti → indici shiftati).
+    ═══════════════════════════════════════════════════════════════ */
+
+    var _colonneListaCache = null;
+
+    function mappaColonneLista() {
+        if (_colonneListaCache) return _colonneListaCache;
+
+        var firstRow = document.querySelector('tr[data-ng-repeat*="vm.items"], tr[data-ng-repeat*="fatture"]');
+        if (!firstRow) return null;
+        var table = firstRow;
+        while (table && table.tagName !== 'TABLE') table = table.parentElement;
+        if (!table) return null;
+
+        var ths = table.querySelectorAll('thead th');
+        if (!ths || ths.length === 0) return null;
+
+        var map = {};
+        log('Colonne tabella lista (' + ths.length + '):');
+        for (var i = 0; i < ths.length; i++) {
+            var txt = ths[i].innerText.replace(/\s+/g, ' ').trim().toLowerCase();
+            log('  [' + i + '] = "' + txt + '"');
+
+            if (!map.tipoDoc && (txt.indexOf('tipo doc') > -1 || txt.indexOf('tipo fatt') > -1))
+                map.tipoDoc = i;
+            else if (map.numero === undefined && (txt === 'numero' || txt === 'n.' || txt.indexOf('numero') > -1))
+                map.numero = i;
+            else if (map.data === undefined && txt.indexOf('data') > -1 &&
+                     txt.indexOf('registr') === -1 && txt.indexOf('conseg') === -1 &&
+                     txt.indexOf('presa') === -1 && txt.indexOf('invio') === -1)
+                map.data = i;
+            else if (map.cfNome === undefined && (
+                     txt.indexOf('cedente') > -1 || txt.indexOf('cessionario') > -1 ||
+                     txt.indexOf('denominazione') > -1 || txt.indexOf('ragione') > -1 ||
+                     txt.indexOf('prestatore') > -1 || txt.indexOf('committente') > -1))
+                map.cfNome = i;
+            else if (map.idSdi === undefined && (txt.indexOf('identificativo') > -1 || txt.indexOf('id s') > -1))
+                map.idSdi = i;
+            else if (map.bollo === undefined && txt.indexOf('bollo') > -1)
+                map.bollo = i;
+        }
+
+        log('Mappa colonne rilevata: ' + JSON.stringify(map));
+
+        if (map.numero !== undefined && map.data !== undefined) {
+            _colonneListaCache = map;
+            return map;
+        }
+        log('WARN: mappa colonne incompleta, fallback a ricerca per contenuto');
+        return null;
+    }
+
+    function resetMappaColonne() { _colonneListaCache = null; }
+
+    /* ─── HELPER: RILEVAMENTO P.IVA ROBUSTO ──────────────────────── */
+    function rileva_PIVA() {
+        var el = document.getElementById('piva');
+        if (el) {
+            var v = '';
+            if (el.tagName === 'SELECT' && el.selectedOptions && el.selectedOptions[0]) {
+                v = el.value || '';
+                if (!v || v.length < 5) {
+                    v = el.selectedOptions[0].textContent.trim();
+                    var di = v.indexOf(' - ');
+                    if (di > -1) v = v.substring(0, di).trim();
+                }
+            } else {
+                v = (el.value || el.textContent || '').trim();
+            }
+            if (v && v.length >= 5 && v !== 'undefined') return v;
+        }
+        try {
+            var scope = getVmScope();
+            if (scope && scope.vm) {
+                var piva = scope.vm.piva || scope.vm.pivaUtente ||
+                           (scope.vm.user ? scope.vm.user.piva : '') || '';
+                if (piva && piva.length >= 5) return piva.trim();
+            }
+        } catch (e) {}
+        var cands = document.querySelectorAll('select[name*="piva"], input[name*="piva"], select[id*="piva"], input[id*="piva"]');
+        for (var i = 0; i < cands.length; i++) {
+            var cv = (cands[i].value || '').trim();
+            if (cv && cv.length >= 5) return cv;
+        }
+        return '';
+    }
+
+    function rilevaPeriodo() {
+        var dalEl = document.getElementById('dal');
+        var alEl  = document.getElementById('al');
+        var dal = dalEl ? (dalEl.value || '').trim() : '';
+        var al  = alEl  ? (alEl.value  || '').trim() : '';
+        if (dal && al) {
+            var d = dal.replace(/\//g, '');
+            var a = al.replace(/\//g, '');
+            if (d.length === 8) d = d.substring(0, 4) + d.substring(6);
+            if (a.length === 8) a = a.substring(0, 4) + a.substring(6);
+            return d + '-' + a;
+        }
+        return '';
     }
 
     /* ═══════════════════════════════════════════════════════════════
@@ -538,6 +653,7 @@
         }
 
         setRunning(true);
+        resetMappaColonne();
         setProgress(0, 'Raccolta lista fatture...');
         setTimeout(function () {
             raccogliListaFatture(1, getTotalPages(), [], includiTransfrontaliere, function (voci) {
@@ -549,10 +665,9 @@
                 }
                 setStatus('▶ ' + voci.length + ' fatture. Lettura dettagli IVA...');
                 analizzaDettagliFatture(voci, 0, [], function (righe) {
-                    if (!_stop) {
-                        setProgress(98, 'Generazione Excel...');
-                        setTimeout(function () { generaExcelFatture(righe); }, 200);
-                    }
+                    if (_stop) { setRunning(false); return; }
+                    setProgress(98, 'Generazione Excel...');
+                    setTimeout(function () { generaExcelFatture(righe); }, 200);
                 });
             });
         }, 300);
@@ -566,56 +681,63 @@
     function raccogliListaFatture(pagina, totPagine, voci, includiTransfrontaliere, callback) {
         if (_stop) { callback(voci); return; }
 
+        // Rileva mappa colonne dagli header (una volta, poi cached)
+        var colMap = mappaColonneLista();
+
         var righe = document.querySelectorAll('tr[data-ng-repeat*="vm.items"], tr[data-ng-repeat*="fatture"]');
         righe.forEach(function (r) {
             var linkEl = r.querySelector('a[href*="/fatture/dettaglio/"]');
             if (!linkEl) return;
             var href = linkEl.getAttribute('href') || '';
             if (!href) return;
-            // Deduplicazione
             for (var i = 0; i < voci.length; i++) { if (voci[i].hash === href) return; }
 
-            /*
-             * Struttura reale delle colonne (da analisi DOM pagina_1.html):
-             * [0]=TipoFattura  [1]=TipoDoc  [2]=Numero  [3]=DataFattura
-             * [4]=Angular template dataRegistrazione  (da ignorare)
-             * [5]=Angular template identificativoCliente  (da ignorare)
-             * [6]=PIVA + " " + PIVA + " - " + Nome
-             * [7]=Imponibile  [8]=IVA  [9]=ID_SDI
-             * [10]=Stato  [11]=Angular template  [12]=DataConsegna
-             * [13]=BolloVirtuale (td vuoto = No; con elemento Angular = Sì)
-             * [14]=Btn Dettaglio
-             */
-            /*
-             * Struttura colonne lista fatture (pagina_1.html):
-             * [0]=TipoFattura  [1]=TipoDoc  [2]=Numero  [3]=DataFattura
-             * [4]=Angular {{dataRegistrazione}}  → ignorare (testo template non renderizzato)
-             * [5]=Angular {{identificativoCliente}}  → ignorare
-             * [6]="PIVA PIVA - NomeCliente"  → nome + piva
-             * [7]=Imponibile  [8]=IVA  [9]=ID_SDI
-             * [10]=Stato consegna  [11]=Angular template  [12]=DataConsegna
-             * [13]=BolloVirtuale (td: vuoto=No / figlio data-ng-if non ng-hide=Sì)
-             * [14]=Btn Dettaglio
-             */
-            var tipoDoc = r.children[1] ? r.children[1].innerText.trim() : '';
-            var numero  = r.children[2] ? r.children[2].innerText.trim() : '';
-            var data    = r.children[3] ? r.children[3].innerText.trim() : '';
-            var cfNome  = r.children[6] ? r.children[6].innerText.trim() : '';
-            var idSdi   = r.children[9] ? r.children[9].innerText.trim() : '';
+            var tipoDoc, numero, data, cfNome, idSdi, bollo;
 
-            // Bollo: il td[13] ha un figlio [data-ng-if] visibile (senza ng-hide) quando Y
-            var bolloEl = r.children[13];
-            var bolloChild = bolloEl ? bolloEl.querySelector('[data-ng-if]') : null;
-            var bollo = (bolloChild && bolloChild.className.indexOf('ng-hide') === -1) ? 'Sì' : 'No';
+            if (colMap) {
+                /* ── MODALITÀ DINAMICA: usa indici da header ────────── */
+                tipoDoc = colMap.tipoDoc !== undefined && r.children[colMap.tipoDoc]
+                    ? r.children[colMap.tipoDoc].innerText.trim() : '';
+                numero = colMap.numero !== undefined && r.children[colMap.numero]
+                    ? r.children[colMap.numero].innerText.trim() : '';
+                data = colMap.data !== undefined && r.children[colMap.data]
+                    ? r.children[colMap.data].innerText.trim() : '';
+                cfNome = colMap.cfNome !== undefined && r.children[colMap.cfNome]
+                    ? r.children[colMap.cfNome].innerText.trim() : '';
+                idSdi = colMap.idSdi !== undefined && r.children[colMap.idSdi]
+                    ? r.children[colMap.idSdi].innerText.trim() : '';
+                bollo = 'No';
+                if (colMap.bollo !== undefined && r.children[colMap.bollo]) {
+                    var bChild = r.children[colMap.bollo].querySelector('[data-ng-if]');
+                    bollo = (bChild && bChild.className.indexOf('ng-hide') === -1) ? 'Sì' : 'No';
+                }
+            } else {
+                /* ── FALLBACK: ricerca per contenuto (cross-browser) ── */
+                tipoDoc = r.children[1] ? r.children[1].innerText.trim() : '';
+                numero  = r.children[2] ? r.children[2].innerText.trim() : '';
+                data    = r.children[3] ? r.children[3].innerText.trim() : '';
+                cfNome = '';
+                for (var ci = 3; ci < r.children.length; ci++) {
+                    var ct = r.children[ci].innerText.trim();
+                    if (ct.indexOf(' - ') > -1 && ct.length > 5) { cfNome = ct; break; }
+                }
+                idSdi = '';
+                for (var si = 3; si < r.children.length; si++) {
+                    var st = r.children[si].innerText.trim();
+                    if (/^\d{11,}$/.test(st)) { idSdi = st; break; }
+                }
+                bollo = 'No';
+                for (var bi = 3; bi < r.children.length; bi++) {
+                    var bc = r.children[bi].querySelector('[data-ng-if*="bollo"], [data-ng-show*="bollo"]');
+                    if (bc) { bollo = (bc.className.indexOf('ng-hide') === -1) ? 'Sì' : 'No'; break; }
+                }
+            }
 
             if (!numero || !data) return;
 
-            // Estrai P.IVA e nome: formato "02626600817 02626600817 - MG CAR RENTAL SRL"
-            // (la P.IVA appare duplicata, poi " - " e la denominazione)
             var dashIdx = cfNome.indexOf(' - ');
             var pivaRaw = dashIdx > -1 ? cfNome.substring(0, dashIdx).trim() : cfNome;
             var nome    = dashIdx > -1 ? cfNome.substring(dashIdx + 3).trim() : cfNome;
-            // pivaRaw può essere "02626600817 02626600817" → prendi solo il primo token
             var piva = pivaRaw.split(/\s+/)[0] || '';
 
             voci.push({
@@ -832,8 +954,27 @@
 
     function aspettaDettaglioFattura(resolve, ms) {
         ms = ms || 0;
-        if (ms > 7000) { resolve(false); return; }
-        // Pronto quando c'è almeno una tabella con header "Imponibile"
+        if (ms > 9000) { resolve(false); return; }
+
+        // Il dettaglio è pronto quando:
+        // 1. Esiste .panel-body con almeno 2 strong.ng-binding
+        // 2. Le righe lista (vm.items) NON sono più nel DOM
+        // 3. Esiste una tabella IVA con header "Imponibile"
+
+        var panelBody = document.querySelector('.panel-body');
+        var strongsInPanel = panelBody ? panelBody.querySelectorAll('strong.ng-binding') : [];
+
+        if (!panelBody || strongsInPanel.length < 2) {
+            setTimeout(function () { aspettaDettaglioFattura(resolve, ms + 250); }, 250);
+            return;
+        }
+
+        var listaAncora = document.querySelectorAll('tr[data-ng-repeat*="vm.items"]');
+        if (listaAncora.length > 0) {
+            setTimeout(function () { aspettaDettaglioFattura(resolve, ms + 250); }, 250);
+            return;
+        }
+
         var tables = document.querySelectorAll('table');
         for (var t = 0; t < tables.length; t++) {
             var ths = tables[t].querySelectorAll('thead th');
@@ -841,7 +982,7 @@
                 if (ths[h].innerText.indexOf('Imponibile') > -1) { resolve(true); return; }
             }
         }
-        setTimeout(function () { aspettaDettaglioFattura(resolve, ms + 200); }, 200);
+        setTimeout(function () { aspettaDettaglioFattura(resolve, ms + 250); }, 250);
     }
 
     /**
@@ -854,10 +995,10 @@
      * sono ripetuti, i totali sono calcolati per fattura (somma di tutte le righe).
      */
     function generaExcelFatture(righe) {
-        if (righe.length === 0) { setStatus('⚠ Nessuna riga da esportare.'); return; }
+        if (righe.length === 0) { setStatus('⚠ Nessuna riga da esportare.'); setRunning(false); return; }
 
-        var pivaEl = document.getElementById('piva');
-        var piva = pivaEl ? (pivaEl.value || '').trim() : '';
+        var piva = rileva_PIVA();
+        var periodo = rilevaPeriodo();
 
         // Raggruppa righe per numero fattura per calcolare i totali
         var totaliPerFattura = {};
@@ -942,7 +1083,11 @@
         var hash = window.location.hash;
         var sezione = hash.indexOf('/emesse') > -1 ? 'emesse' :
                       hash.indexOf('/ricevute') > -1 ? 'ricevute' : 'fatture';
-        var filename = (piva ? piva + '_' : '') + sezione + '.xls';
+        var parts = [];
+        if (piva) parts.push(piva);
+        if (periodo) parts.push(periodo);
+        parts.push(sezione);
+        var filename = parts.join('_') + '.xls';
 
         var blob = new Blob([xls], { type: 'application/vnd.ms-excel;charset=utf-8' });
         var url  = URL.createObjectURL(blob);
@@ -953,6 +1098,7 @@
         setTimeout(function () { a.remove(); URL.revokeObjectURL(url); }, 3000);
 
         var nFatture = Object.keys(fattureContate).length;
+        setRunning(false);
         setProgress(100, '✅ Excel: ' + filename + ' — ' + nFatture + ' fatture, ' + righe.length + ' righe IVA');
         var prow = document.getElementById('FEPlugin_BottomRow');
         if (prow) setTimeout(function () { prow.style.setProperty('display','none','important'); }, 4000);
@@ -1189,11 +1335,10 @@
      */
     function generaExcelCorrispettivi(datiPerMatricola) {
         var matricole = Object.keys(datiPerMatricola);
-        if (matricole.length === 0) { setStatus('⚠ Nessun dato raccolto. Riprovare.'); return; }
+        if (matricole.length === 0) { setStatus('⚠ Nessun dato raccolto. Riprovare.'); setRunning(false); return; }
 
-        // P.IVA dal selettore della pagina (presente sia fatture che corrispettivi)
-        var pivaEl = document.getElementById('piva');
-        var piva = pivaEl ? (pivaEl.value || '').trim() : '';
+        var piva = rileva_PIVA();
+        var periodo = rilevaPeriodo();
 
         // Converte "dd/mm/yyyy" in Date per ordinamento
         function parseDataIt(s) {
@@ -1309,7 +1454,11 @@
             var url  = URL.createObjectURL(blob);
             var a    = document.createElement('a');
             a.href   = url;
-            a.download = (piva ? piva + '_' : '') + matricola + '.xls';
+            var cParts = [];
+            if (piva) cParts.push(piva);
+            if (periodo) cParts.push(periodo);
+            cParts.push(matricola);
+            a.download = cParts.join('_') + '.xls';
             a.style.display = 'none';
             document.body.appendChild(a);
             a.click();
@@ -1317,6 +1466,7 @@
             setTimeout(function () { a.remove(); URL.revokeObjectURL(url); }, 3000);
         });
 
+        setRunning(false);
         setProgress(100, '✅ Generati ' + nFile + ' file Excel (' + matricole.join(', ') + ')');
         var prow = document.getElementById('FEPlugin_BottomRow');
         if (prow) setTimeout(function () { prow.style.setProperty('display','none','important'); }, 4000);
