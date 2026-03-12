@@ -1,4 +1,4 @@
-<!-- v0.95.1 alpha -->
+<!-- v0.95.2 alpha -->
 <!DOCTYPE html>
 <html lang="it">
 <head>
@@ -581,7 +581,7 @@
         <div class="hero-inner">
             <div class="hero-badge">
                 <span class="dot"></span>
-                v0.95.1 alpha — Ultimo aggiornamento: Febbraio 2026
+                v0.95.2 alpha — Ultimo aggiornamento: Marzo 2026
             </div>
             <h1>📄 FE-Utility<br><span>Toolbox per Fatture e Corrispettivi</span></h1>
             <p class="subtitle">
@@ -601,7 +601,7 @@
     <!-- ─── TOOLBAR PREVIEW ───────────────────────────── -->
     <div class="toolbar-preview">
         <div class="toolbar-mock" role="img" aria-label="Anteprima della barra degli strumenti">
-            <span class="title">📄 FE-Utility v0.95.1α</span>
+            <span class="title">📄 FE-Utility v0.95.2α</span>
             <span class="mock-btn">⬇ Scarica fatture</span>
             <span class="mock-btn">📊 Fatture→Excel</span>
 			<span class="mock-btn">📈 Corrispettivi → Excel</span>
@@ -638,6 +638,20 @@
                 <div class="step">
                     <div class="step-num">2</div>
                     <div class="step-content">
+                        <h4>Solo Chrome / Edge — Abilita gli script utente</h4>
+                        <p>Chrome ed Edge richiedono un'autorizzazione aggiuntiva per eseguire gli userscript. <strong>Senza questo passaggio lo script non funzionerà.</strong></p>
+                        <ol style="margin:8px 0 4px 20px;font-size:14px;line-height:1.8;">
+                            <li>Apri <code style="background:var(--gray-100);padding:2px 6px;border-radius:4px;font-size:13px;">chrome://extensions</code> (Chrome) oppure <code style="background:var(--gray-100);padding:2px 6px;border-radius:4px;font-size:13px;">edge://extensions</code> (Edge)</li>
+                            <li>Trova <strong>Tampermonkey</strong> e clicca <strong>Dettagli</strong></li>
+                            <li>Attiva l'opzione <strong>«Consenti script utente»</strong> (o <em>"Allow user scripts"</em>)</li>
+                        </ol>
+                        <p style="font-size:13px;color:var(--gray-600);margin-top:6px;">⚠️ Su Firefox questo passaggio non è necessario.</p>
+                    </div>
+                </div>
+
+                <div class="step">
+                    <div class="step-num">3</div>
+                    <div class="step-content">
                         <h4>Installa lo userscript</h4>
                         <p>Clicca il pulsante qui sotto — Tampermonkey aprirà automaticamente la finestra di conferma:</p>
                         <p>
@@ -649,7 +663,7 @@
                 </div>
 
                 <div class="step">
-                    <div class="step-num">3</div>
+                    <div class="step-num">4</div>
                     <div class="step-content">
                         <h4>Accedi al portale</h4>
                         <p>Vai su <a href="https://ivaservizi.agenziaentrate.gov.it" target="_blank">ivaservizi.agenziaentrate.gov.it</a> — la barra verde apparirà automaticamente in cima alla pagina.</p>
@@ -746,8 +760,20 @@
 
 			<div class="changelog-entry">
 				<div class="changelog-version">
-					v0.95.1 alpha
+					v0.95.2 alpha
 					<span class="changelog-tag">Latest</span>
+				</div>
+				<ul class="changelog-list">
+					<li><span class="changelog-tag fix">FIX</span> Excel fatture sballato su Chrome/Edge: rilevamento colonne dinamico dagli header <code>&lt;th&gt;</code> con fallback a ricerca per contenuto</li>
+					<li><span class="changelog-tag fix">FIX</span> Dettaglio fattura non rilevato su Chrome: aggiunto check su <code>.panel-body</code> + <code>strong.ng-binding</code></li>
+					<li><span class="changelog-tag fix">FIX</span> Barra bloccata dopo export Excel: aggiunto <code>setRunning(false)</code></li>
+					<li><span class="changelog-tag fix">FIX</span> Nome file Excel con P.IVA e periodo (es. <code>12345_010126-310326_emesse.xls</code>)</li>
+					<li><span class="changelog-tag new">DOC</span> Compatibilità Chrome / Edge: istruzione per attivare «Consenti script utente» in Tampermonkey</li>
+				</ul>
+			</div>
+			<div class="changelog-entry">
+				<div class="changelog-version">
+					v0.95.1 alpha
 				</div>
 				<ul class="changelog-list">
 					<li><span class="changelog-tag fix">FIX</span> Pulsante Stop non scompariva dopo fine operazioni (CSS <code>!important</code> mancante in <code>setRunning</code>)</li>
@@ -796,7 +822,7 @@
                 Il software è fornito "così com'è", senza garanzie. L'utente è l'unico responsabile dell'uso che ne viene fatto.
             </p>
             <div class="footer-badges">
-                <img src="https://img.shields.io/badge/versione-0.95.1%20alpha-green" alt="Versione">
+                <img src="https://img.shields.io/badge/versione-0.95.2%20alpha-green" alt="Versione">
                 <img src="https://img.shields.io/badge/licenza-GPL%20v3-blue" alt="Licenza">
                 <img src="https://img.shields.io/badge/Tampermonkey-compatibile-brightgreen" alt="Tampermonkey">
                 <img src="https://img.shields.io/badge/Greasemonkey-compatibile-orange" alt="Greasemonkey">

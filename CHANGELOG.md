@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.95.2-alpha] — 2026-03-12
+
+### Fix
+- **Excel fatture sballato su Chrome/Edge**: le colonne della tabella lista venivano lette con indici hardcoded che non corrispondevano alla struttura DOM di Chrome (colonne Angular template assenti). Ora il rilevamento avviene dinamicamente dagli header `<th>` con fallback a ricerca per contenuto
+- **Dettaglio fattura non rilevato su Chrome**: `aspettaDettaglioFattura` risolveva immediatamente perché la tabella lista contiene anch'essa l'header "Imponibile". Aggiunta verifica che `.panel-body` con `strong.ng-binding` sia presente e che le righe lista siano sparite dal DOM
+- **Barra bloccata dopo export Excel**: `generaExcelFatture` e `generaExcelCorrispettivi` non chiamavano `setRunning(false)` al termine, lasciando i pulsanti disabilitati fino al ricaricamento della pagina
+- **Nome file Excel**: il campo `#piva` non veniva letto correttamente su Chrome. Aggiunto rilevamento robusto con fallback (select/input/scope Angular). Aggiunto il periodo nel nome file (es. `12345678901_010126-310326_emesse.xls`)
+
+### Documentazione
+- **Compatibilità Chrome / Edge**: aggiunta istruzione obbligatoria per attivare «Consenti script utente» nelle impostazioni di Tampermonkey
+- **Tabella compatibilità browser** aggiornata: Chrome, Edge e Firefox verificati come funzionanti
+- **Link installazione Tampermonkey per Edge** aggiunto a README e pagina istruzioni
+
 ## [0.95.1-alpha] — 2026-02-26
 
 ### Fix

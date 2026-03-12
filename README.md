@@ -4,9 +4,10 @@
 
 Userscript per Tampermonkey / Greasemonkey che aggiunge una barra degli strumenti al portale della fatturazione elettronica dell'Agenzia delle Entrate, con funzioni di export Excel e download massivo.
 
-[![Version](https://img.shields.io/badge/versione-0.95.1%20alpha-green)](#)
+[![Version](https://img.shields.io/badge/versione-0.95.2%20alpha-green)](#)
 [![License: GPL v3](https://img.shields.io/badge/licenza-GPL%20v3-blue)](https://www.gnu.org/licenses/gpl-3.0)
 [![Tampermonkey](https://img.shields.io/badge/Tampermonkey-compatibile-brightgreen)](https://www.tampermonkey.net/)
+[![Greasemonkey](https://img.shields.io/badge/Greasemonkey-compatibile-orange)](https://www.greasespot.net/)
 
 ---
 
@@ -20,21 +21,27 @@ Userscript per Tampermonkey / Greasemonkey che aggiunge una barra degli strument
 > Richiede **Tampermonkey** (Chrome/Edge/Firefox) o **Greasemonkey** (Firefox)
 
 1. Installa l'estensione del browser:
-   - [Tampermonkey per Chrome](https://chromewebstore.google.com/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo)
+   - [Tampermonkey per Chrome](https://chrome.google.com/webstore/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo)
    - [Tampermonkey per Edge](https://microsoftedge.microsoft.com/addons/detail/tampermonkey/iikmkjmpaadaobahmlepeloendndfphd)
    - [Tampermonkey per Firefox](https://addons.mozilla.org/it/firefox/addon/tampermonkey/)
    - [Greasemonkey per Firefox](https://addons.mozilla.org/it/firefox/addon/greasemonkey/)
 
-2. Clicca il link di installazione:
+2. **Solo Chrome / Edge** — Abilita gli script utente:
+   - Apri `chrome://extensions` (Chrome) o `edge://extensions` (Edge)
+   - Trova **Tampermonkey** → clicca **Dettagli**
+   - Attiva **«Consenti script utente»** (*Allow user scripts*)
+   - ⚠️ **Senza questo passaggio lo script non funzionerà su Chrome/Edge.**
+
+3. Clicca il link di installazione:
 
    **[➤ Installa FE-Utility.user.js](https://raw.githubusercontent.com/denvermotel/fe-utility/refs/heads/main/FE-Utility.user.js)**
 
    Tampermonkey aprirà automaticamente la finestra di conferma installazione.
 
-3. **(Consigliato)** In Tampermonkey, abilita "Memorizza dati" per lo script:
+4. **(Consigliato)** In Tampermonkey, abilita "Memorizza dati" per lo script:
    Dashboard → FE-Utility → Impostazioni → Abilita memorizzazione dati. Questo consente allo script di salvare lo stato dei download tra le sessioni.
 
-4. Accedi su [ivaservizi.agenziaentrate.gov.it](https://ivaservizi.agenziaentrate.gov.it) — la barra verde apparirà automaticamente in cima alla pagina.
+5. Accedi su [ivaservizi.agenziaentrate.gov.it](https://ivaservizi.agenziaentrate.gov.it) — la barra verde apparirà automaticamente in cima alla pagina.
 
 ---
 
@@ -85,10 +92,10 @@ Si attiva automaticamente. Selettore periodo con scorciatoie tastiera:
 
 | Browser | Estensione | Stato |
 |---------|-----------|-------|
-| Chrome / Chromium | Tampermonkey | 🔧 in fase di test |
-| Firefox | Tampermonkey | 🔧 in fase di test |
+| Chrome / Chromium | Tampermonkey | ✅ funzionante (richiede «Consenti script utente») |
+| Firefox | Tampermonkey | ✅ funzionante |
+| Edge | Tampermonkey | ✅ funzionante (richiede «Consenti script utente») |
 | Firefox | Greasemonkey 4 | ❌ non testato |
-| Edge | Tampermonkey | 🔧 in fase di test |
 
 ---
 
