@@ -564,6 +564,71 @@
             height: 22px;
         }
 
+        /* ─── BROWSER TABS ──────────────────────────────── */
+        .browser-tabs {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-top: 24px;
+            margin-bottom: 0;
+        }
+
+        .browser-tab {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 20px;
+            border-radius: 8px 8px 0 0;
+            border: 1px solid var(--gray-200);
+            border-bottom: none;
+            background: var(--gray-100);
+            color: var(--gray-600);
+            font-family: var(--font-body);
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .browser-tab:hover {
+            background: var(--gray-200);
+            color: var(--gray-800);
+        }
+
+        .browser-tab.active {
+            background: var(--white);
+            color: var(--green-700);
+            border-color: var(--gray-200);
+            border-bottom-color: var(--white);
+            position: relative;
+            z-index: 1;
+        }
+
+        .browser-tab .browser-icon {
+            font-size: 18px;
+        }
+
+        .browser-panels {
+            border: 1px solid var(--gray-200);
+            border-radius: 0 8px 8px 8px;
+            background: var(--white);
+            margin-bottom: 0;
+            position: relative;
+        }
+
+        .browser-panel {
+            display: none;
+            padding: 28px 24px;
+        }
+
+        .browser-panel.active {
+            display: block;
+        }
+
+        .browser-panel .steps {
+            margin-top: 0;
+        }
+
         /* ─── RESPONSIVE ────────────────────────────────── */
         @media (max-width: 640px) {
             .hero { padding: 48px 20px 40px; }
@@ -571,6 +636,7 @@
             .features-grid { grid-template-columns: 1fr; }
             .hero-actions { flex-direction: column; }
             .btn { justify-content: center; }
+            .browser-tab { font-size: 13px; padding: 8px 14px; }
         }
     </style>
 </head>
@@ -594,6 +660,9 @@
                 <a href="https://github.com/denvermotel/fe-utility" class="btn btn-secondary" target="_blank" rel="noopener">
                     GitHub Repository
                 </a>
+                <a href="#installazione" class="btn btn-secondary">
+                    📖 Istruzioni installazione
+                </a>
             </div>
         </div>
     </header>
@@ -610,7 +679,6 @@
             <span class="mock-info">ℹ️</span>
             <span class="mock-close">✕</span>
         </div>
-        <p class="toolbar-caption">Anteprima della barra — appare automaticamente su ivaservizi.agenziaentrate.gov.it</p>
     </div>
 
     <!-- ─── INSTALLAZIONE ─────────────────────────────── -->
@@ -618,58 +686,179 @@
         <div class="container">
             <span class="section-label">Guida rapida</span>
             <h2>Installazione</h2>
-            <p>Richiede un'estensione per userscript nel browser. L'installazione richiede meno di 2 minuti.</p>
+            <p>Richiede un'estensione per userscript nel browser. L'installazione richiede meno di 2 minuti. Seleziona il tuo browser:</p>
 
-            <div class="steps">
-                <div class="step">
-                    <div class="step-num">1</div>
-                    <div class="step-content">
-                        <h4>Installa l'estensione del browser</h4>
-                        <p>Scegli l'estensione per il tuo browser:</p>
-                        <p>
-                            <a href="https://chromewebstore.google.com/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo" target="_blank">Tampermonkey per Chrome</a> ·
-                            <a href="https://microsoftedge.microsoft.com/addons/detail/tampermonkey/iikmkjmpaadaobahmlepeloendndfphd" target="_blank">Tampermonkey per Edge</a> ·
-                            <a href="https://addons.mozilla.org/it/firefox/addon/tampermonkey/" target="_blank">Tampermonkey per Firefox</a> ·
-                            <a href="https://addons.mozilla.org/it/firefox/addon/greasemonkey/" target="_blank">Greasemonkey per Firefox</a> ·
-                            <a href="https://apps.apple.com/it/app/userscripts/id1463298887" target="_blank">Userscripts per Safari</a>
-                        </p>
+            <div class="browser-tabs" role="tablist">
+                <button class="browser-tab active" role="tab" aria-selected="true" aria-controls="panel-chrome" onclick="switchBrowser('chrome')">
+                    <span class="browser-icon">🌐</span> Chrome
+                </button>
+                <button class="browser-tab" role="tab" aria-selected="false" aria-controls="panel-edge" onclick="switchBrowser('edge')">
+                    <span class="browser-icon">🔷</span> Edge
+                </button>
+                <button class="browser-tab" role="tab" aria-selected="false" aria-controls="panel-firefox" onclick="switchBrowser('firefox')">
+                    <span class="browser-icon">🦊</span> Firefox
+                </button>
+                <button class="browser-tab" role="tab" aria-selected="false" aria-controls="panel-safari" onclick="switchBrowser('safari')">
+                    <span class="browser-icon">🧭</span> Safari
+                </button>
+            </div>
+
+            <div class="browser-panels">
+
+                <!-- CHROME -->
+                <div id="panel-chrome" class="browser-panel active" role="tabpanel">
+                    <div class="steps">
+                        <div class="step">
+                            <div class="step-num">1</div>
+                            <div class="step-content">
+                                <h4>Installa Tampermonkey per Chrome</h4>
+                                <p>Scarica l'estensione dal Chrome Web Store:</p>
+                                <p><a href="https://chromewebstore.google.com/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo" target="_blank" rel="noopener">Tampermonkey — Chrome Web Store →</a></p>
+                            </div>
+                        </div>
+                        <div class="step">
+                            <div class="step-num">2</div>
+                            <div class="step-content">
+                                <h4>Abilita gli script utente</h4>
+                                <p>Chrome richiede un'autorizzazione aggiuntiva. <strong>Senza questo passaggio lo script non funzionerà.</strong></p>
+                                <ol style="margin:8px 0 4px 20px;font-size:14px;line-height:1.8;">
+                                    <li>Apri <code>chrome://extensions</code> nella barra degli indirizzi</li>
+                                    <li>Trova <strong>Tampermonkey</strong> e clicca <strong>Dettagli</strong></li>
+                                    <li>Attiva l'opzione <strong>«Consenti script utente»</strong></li>
+                                </ol>
+                            </div>
+                        </div>
+                        <div class="step">
+                            <div class="step-num">3</div>
+                            <div class="step-content">
+                                <h4>Installa FE-Utility</h4>
+                                <p>Clicca il pulsante — Tampermonkey aprirà la finestra di conferma:</p>
+                                <p><a href="https://raw.githubusercontent.com/denvermotel/fe-utility/refs/heads/main/FE-Utility.user.js" class="btn btn-primary" style="display:inline-flex;font-size:14px;padding:10px 20px;">➤ Installa FE-Utility.user.js</a></p>
+                            </div>
+                        </div>
+                        <div class="step">
+                            <div class="step-num">4</div>
+                            <div class="step-content">
+                                <h4>Accedi al portale</h4>
+                                <p>Vai su <a href="https://ivaservizi.agenziaentrate.gov.it" target="_blank" rel="noopener">ivaservizi.agenziaentrate.gov.it</a> — la barra verde apparirà automaticamente in cima alla pagina.</p>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
-                <div class="step">
-                    <div class="step-num">2</div>
-                    <div class="step-content">
-                        <h4>Solo Chrome / Edge — Abilita gli script utente</h4>
-                        <p>Chrome ed Edge richiedono un'autorizzazione aggiuntiva per eseguire gli userscript. <strong>Senza questo passaggio lo script non funzionerà.</strong></p>
-                        <ol style="margin:8px 0 4px 20px;font-size:14px;line-height:1.8;">
-                            <li>Apri <code style="background:var(--gray-100);padding:2px 6px;border-radius:4px;font-size:13px;">chrome://extensions</code> (Chrome) oppure <code style="background:var(--gray-100);padding:2px 6px;border-radius:4px;font-size:13px;">edge://extensions</code> (Edge)</li>
-                            <li>Trova <strong>Tampermonkey</strong> e clicca <strong>Dettagli</strong></li>
-                            <li>Attiva l'opzione <strong>«Consenti script utente»</strong> (o <em>"Allow user scripts"</em>)</li>
-                        </ol>
-                        <p style="font-size:13px;color:var(--gray-600);margin-top:6px;">⚠️ Su Firefox questo passaggio non è necessario.</p>
+                <!-- EDGE -->
+                <div id="panel-edge" class="browser-panel" role="tabpanel">
+                    <div class="steps">
+                        <div class="step">
+                            <div class="step-num">1</div>
+                            <div class="step-content">
+                                <h4>Installa Tampermonkey per Edge</h4>
+                                <p>Scarica l'estensione dal Microsoft Edge Add-ons Store:</p>
+                                <p><a href="https://microsoftedge.microsoft.com/addons/detail/tampermonkey/iikmkjmpaadaobahmlepeloendndfphd" target="_blank" rel="noopener">Tampermonkey — Edge Add-ons →</a></p>
+                            </div>
+                        </div>
+                        <div class="step">
+                            <div class="step-num">2</div>
+                            <div class="step-content">
+                                <h4>Abilita gli script utente</h4>
+                                <p>Edge richiede un'autorizzazione aggiuntiva. <strong>Senza questo passaggio lo script non funzionerà.</strong></p>
+                                <ol style="margin:8px 0 4px 20px;font-size:14px;line-height:1.8;">
+                                    <li>Apri <code>edge://extensions</code> nella barra degli indirizzi</li>
+                                    <li>Trova <strong>Tampermonkey</strong> e clicca <strong>Dettagli</strong></li>
+                                    <li>Attiva l'opzione <strong>«Consenti script utente»</strong> (o <em>"Allow user scripts"</em>)</li>
+                                </ol>
+                            </div>
+                        </div>
+                        <div class="step">
+                            <div class="step-num">3</div>
+                            <div class="step-content">
+                                <h4>Installa FE-Utility</h4>
+                                <p>Clicca il pulsante — Tampermonkey aprirà la finestra di conferma:</p>
+                                <p><a href="https://raw.githubusercontent.com/denvermotel/fe-utility/refs/heads/main/FE-Utility.user.js" class="btn btn-primary" style="display:inline-flex;font-size:14px;padding:10px 20px;">➤ Installa FE-Utility.user.js</a></p>
+                            </div>
+                        </div>
+                        <div class="step">
+                            <div class="step-num">4</div>
+                            <div class="step-content">
+                                <h4>Accedi al portale</h4>
+                                <p>Vai su <a href="https://ivaservizi.agenziaentrate.gov.it" target="_blank" rel="noopener">ivaservizi.agenziaentrate.gov.it</a> — la barra verde apparirà automaticamente in cima alla pagina.</p>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
-                <div class="step">
-                    <div class="step-num">3</div>
-                    <div class="step-content">
-                        <h4>Installa lo userscript</h4>
-                        <p>Clicca il pulsante qui sotto — Tampermonkey aprirà automaticamente la finestra di conferma:</p>
-                        <p>
-                            <a href="https://raw.githubusercontent.com/denvermotel/fe-utility/refs/heads/main/FE-Utility.user.js" class="btn btn-primary" style="display:inline-flex;font-size:14px;padding:10px 20px;">
-                                ➤ Installa FE-Utility.user.js
-                            </a>
-                        </p>
+                <!-- FIREFOX -->
+                <div id="panel-firefox" class="browser-panel" role="tabpanel">
+                    <div class="steps">
+                        <div class="step">
+                            <div class="step-num">1</div>
+                            <div class="step-content">
+                                <h4>Installa Tampermonkey o Greasemonkey</h4>
+                                <p>Scegli una delle due estensioni — entrambe funzionano:</p>
+                                <p>
+                                    <a href="https://addons.mozilla.org/it/firefox/addon/tampermonkey/" target="_blank" rel="noopener">Tampermonkey per Firefox →</a><br>
+                                    <a href="https://addons.mozilla.org/it/firefox/addon/greasemonkey/" target="_blank" rel="noopener">Greasemonkey per Firefox →</a>
+                                </p>
+                            </div>
+                        </div>
+                        <div class="step">
+                            <div class="step-num">2</div>
+                            <div class="step-content">
+                                <h4>Installa FE-Utility</h4>
+                                <p>Clicca il pulsante — l'estensione aprirà la finestra di conferma (nessun passaggio aggiuntivo richiesto su Firefox):</p>
+                                <p><a href="https://raw.githubusercontent.com/denvermotel/fe-utility/refs/heads/main/FE-Utility.user.js" class="btn btn-primary" style="display:inline-flex;font-size:14px;padding:10px 20px;">➤ Installa FE-Utility.user.js</a></p>
+                            </div>
+                        </div>
+                        <div class="step">
+                            <div class="step-num">3</div>
+                            <div class="step-content">
+                                <h4>Accedi al portale</h4>
+                                <p>Vai su <a href="https://ivaservizi.agenziaentrate.gov.it" target="_blank" rel="noopener">ivaservizi.agenziaentrate.gov.it</a> — la barra verde apparirà automaticamente in cima alla pagina.</p>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
-                <div class="step">
-                    <div class="step-num">4</div>
-                    <div class="step-content">
-                        <h4>Accedi al portale</h4>
-                        <p>Vai su <a href="https://ivaservizi.agenziaentrate.gov.it" target="_blank">ivaservizi.agenziaentrate.gov.it</a> — la barra verde apparirà automaticamente in cima alla pagina.</p>
+                <!-- SAFARI -->
+                <div id="panel-safari" class="browser-panel" role="tabpanel">
+                    <div class="steps">
+                        <div class="step">
+                            <div class="step-num">1</div>
+                            <div class="step-content">
+                                <h4>Installa Userscripts dal Mac App Store</h4>
+                                <p>Safari utilizza l'app <strong>Userscripts</strong> (gratuita, solo Mac):</p>
+                                <p><a href="https://apps.apple.com/it/app/userscripts/id1463298887" target="_blank" rel="noopener">Userscripts — Mac App Store →</a></p>
+                            </div>
+                        </div>
+                        <div class="step">
+                            <div class="step-num">2</div>
+                            <div class="step-content">
+                                <h4>Abilita l'estensione in Safari</h4>
+                                <ol style="margin:8px 0 4px 20px;font-size:14px;line-height:1.8;">
+                                    <li>Apri <strong>Safari → Impostazioni → Estensioni</strong></li>
+                                    <li>Abilita <strong>Userscripts</strong></li>
+                                    <li>Concedi l'accesso ai siti se richiesto</li>
+                                </ol>
+                            </div>
+                        </div>
+                        <div class="step">
+                            <div class="step-num">3</div>
+                            <div class="step-content">
+                                <h4>Installa FE-Utility</h4>
+                                <p>Clicca il pulsante — Userscripts aprirà la finestra di conferma:</p>
+                                <p><a href="https://raw.githubusercontent.com/denvermotel/fe-utility/refs/heads/main/FE-Utility.user.js" class="btn btn-primary" style="display:inline-flex;font-size:14px;padding:10px 20px;">➤ Installa FE-Utility.user.js</a></p>
+                            </div>
+                        </div>
+                        <div class="step">
+                            <div class="step-num">4</div>
+                            <div class="step-content">
+                                <h4>Accedi al portale</h4>
+                                <p>Vai su <a href="https://ivaservizi.agenziaentrate.gov.it" target="_blank" rel="noopener">ivaservizi.agenziaentrate.gov.it</a> — la barra verde apparirà automaticamente in cima alla pagina.</p>
+                            </div>
+                        </div>
                     </div>
                 </div>
+
             </div>
         </div>
     </section>
@@ -805,7 +994,7 @@
 			</div>
 
 			<div class="changelog-entry">
-				<div class="changelog-version">v0.94 gamma</div>
+				<div class="changelog-version">v0.94 alpha</div>
 				<ul class="changelog-list">
 					<li>Risolto bug duplicati corrispettivi (3 copie Angular ng-repeat)</li>
 					<li>BUG: <code>trySetAllOnOnePage()</code> impediva lettura oltre 50 record</li>
@@ -813,7 +1002,7 @@
 			</div>
 
 			<div class="changelog-entry">
-				<div class="changelog-version">v0.93 beta</div>
+				<div class="changelog-version">v0.93 alpha</div>
 				<ul class="changelog-list">
 					<li>Prima versione pubblica</li>
 				</ul>
@@ -845,6 +1034,22 @@
             </p>
         </div>
     </footer>
+
+    <script>
+        function switchBrowser(browser) {
+            document.querySelectorAll('.browser-tab').forEach(function(tab) {
+                tab.classList.remove('active');
+                tab.setAttribute('aria-selected', 'false');
+            });
+            document.querySelectorAll('.browser-panel').forEach(function(panel) {
+                panel.classList.remove('active');
+            });
+            var activeTab = document.querySelector('[aria-controls="panel-' + browser + '"]');
+            var activePanel = document.getElementById('panel-' + browser);
+            if (activeTab) { activeTab.classList.add('active'); activeTab.setAttribute('aria-selected', 'true'); }
+            if (activePanel) { activePanel.classList.add('active'); }
+        }
+    </script>
 
 </body>
 </html>
