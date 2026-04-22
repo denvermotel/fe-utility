@@ -1,4 +1,4 @@
-<!-- v0.95.2 alpha -->
+<!-- v0.96 alpha -->
 <!DOCTYPE html>
 <html lang="it">
 <head>
@@ -581,7 +581,7 @@
         <div class="hero-inner">
             <div class="hero-badge">
                 <span class="dot"></span>
-                v0.95.2 alpha — Ultimo aggiornamento: Marzo 2026
+                v0.96 alpha — Ultimo aggiornamento: Aprile 2026
             </div>
             <h1>📄 FE-Utility<br><span>Toolbox per Fatture e Corrispettivi</span></h1>
             <p class="subtitle">
@@ -601,11 +601,11 @@
     <!-- ─── TOOLBAR PREVIEW ───────────────────────────── -->
     <div class="toolbar-preview">
         <div class="toolbar-mock" role="img" aria-label="Anteprima della barra degli strumenti">
-            <span class="title">📄 FE-Utility v0.95.2α</span>
+            <span class="title">📄 FE-Utility v0.96α</span>
             <span class="mock-btn">⬇ Scarica fatture</span>
             <span class="mock-btn">📊 Fatture→Excel</span>
-			<span class="mock-btn">📈 Corrispettivi → Excel</span>
-			<span class="mock-btn">📅 Date</span>		
+            <span class="mock-btn">📈 Corrispettivi → Excel</span>
+            <span class="mock-btn">📅 Date</span>
             <span class="spacer"></span>
             <span class="mock-info">ℹ️</span>
             <span class="mock-close">✕</span>
@@ -630,7 +630,8 @@
                             <a href="https://chromewebstore.google.com/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo" target="_blank">Tampermonkey per Chrome</a> ·
                             <a href="https://microsoftedge.microsoft.com/addons/detail/tampermonkey/iikmkjmpaadaobahmlepeloendndfphd" target="_blank">Tampermonkey per Edge</a> ·
                             <a href="https://addons.mozilla.org/it/firefox/addon/tampermonkey/" target="_blank">Tampermonkey per Firefox</a> ·
-                            <a href="https://addons.mozilla.org/it/firefox/addon/greasemonkey/" target="_blank">Greasemonkey per Firefox</a>
+                            <a href="https://addons.mozilla.org/it/firefox/addon/greasemonkey/" target="_blank">Greasemonkey per Firefox</a> ·
+                            <a href="https://apps.apple.com/it/app/userscripts/id1463298887" target="_blank">Userscripts per Safari</a>
                         </p>
                     </div>
                 </div>
@@ -760,8 +761,17 @@
 
 			<div class="changelog-entry">
 				<div class="changelog-version">
-					v0.95.2 alpha
+					v0.96 alpha
 					<span class="changelog-tag">Latest</span>
+				</div>
+				<ul class="changelog-list">
+					<li><span class="changelog-tag new">NEW</span> Excel fatture: <b>una riga per fattura</b> (pivot multi-aliquota)</li>
+					<li><span class="changelog-tag new">NEW</span> Aliquote IVA (4%, 5%, 10%, 22%) e codici natura SdI (N1, N2.1, N2.2, N3.1…N7) come coppie di colonne dinamiche <code>Imp. X%</code> / <code>IVA X%</code>, ordinate numericamente poi alfabeticamente</li>
+				</ul>
+			</div>
+			<div class="changelog-entry">
+				<div class="changelog-version">
+					v0.95.2 alpha
 				</div>
 				<ul class="changelog-list">
 					<li><span class="changelog-tag fix">FIX</span> Excel fatture sballato su Chrome/Edge: rilevamento colonne dinamico dagli header <code>&lt;th&gt;</code> con fallback a ricerca per contenuto</li>
@@ -769,6 +779,7 @@
 					<li><span class="changelog-tag fix">FIX</span> Barra bloccata dopo export Excel: aggiunto <code>setRunning(false)</code></li>
 					<li><span class="changelog-tag fix">FIX</span> Nome file Excel con P.IVA e periodo (es. <code>12345_010126-310326_emesse.xls</code>)</li>
 					<li><span class="changelog-tag new">DOC</span> Compatibilità Chrome / Edge: istruzione per attivare «Consenti script utente» in Tampermonkey</li>
+					<li><span class="changelog-tag new">DOC</span> Compatibilità Safari: supporto UserScripts.app (Mac App Store)</li>
 				</ul>
 			</div>
 			<div class="changelog-entry">
@@ -822,7 +833,7 @@
                 Il software è fornito "così com'è", senza garanzie. L'utente è l'unico responsabile dell'uso che ne viene fatto.
             </p>
             <div class="footer-badges">
-                <img src="https://img.shields.io/badge/versione-0.95.2%20alpha-green" alt="Versione">
+                <img src="https://img.shields.io/badge/versione-0.96%20alpha-green" alt="Versione">
                 <img src="https://img.shields.io/badge/licenza-GPL%20v3-blue" alt="Licenza">
                 <img src="https://img.shields.io/badge/Tampermonkey-compatibile-brightgreen" alt="Tampermonkey">
                 <img src="https://img.shields.io/badge/Greasemonkey-compatibile-orange" alt="Greasemonkey">

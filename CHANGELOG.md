@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.96-alpha] — 2026-04-23
+
+### Nuovo
+- **Excel fatture — una riga per fattura (pivot multi-aliquota)**: le righe per aliquota vengono ora aggregate in un'unica riga per fattura con colonne dinamiche per ciascuna aliquota IVA / codice natura
+- **Colonne dinamiche IVA e natura SdI**: aliquote (4%, 5%, 10%, 22%) e codici natura (N1, N2.1, N2.2, N3.1…N7) generano coppie di colonne `Imp. X%` / `IVA X%`, ordinate numericamente poi alfabeticamente
+
+### Fix
+- **Anno NaN nel selettore date**: aggiunto guard `isNaN(anno)` prima del calcolo delle date quando il campo anno è vuoto
+
 ## [0.95.2-alpha] — 2026-03-12
 
 ### Fix

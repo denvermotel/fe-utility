@@ -3,10 +3,11 @@
 // @namespace      https://denvermotel.github.io/fe-utility/
 // @downloadURL    https://raw.githubusercontent.com/denvermotel/fe-utility/refs/heads/main/FE-Utility.user.js
 // @updateURL      https://raw.githubusercontent.com/denvermotel/fe-utility/refs/heads/main/FE-Utility.user.js
-// @version        0.95.2-alpha
+// @version        0.96-alpha
 // @description    Toolbox per ivaservizi.agenziaentrate.gov.it: scarica fatture, export Excel fatture/corrispettivi, selettore date rapido
 // @author         denvermotel
 // @match          https://ivaservizi.agenziaentrate.gov.it/*
+// @include        https://ivaservizi.agenziaentrate.gov.it/*
 // @icon           https://www.agenziaentrate.gov.it/portale/favicon.ico
 // @grant          GM_download
 // @grant          GM_info
@@ -21,8 +22,13 @@
 // ==/UserScript==
 
 /**
- * FE-Utility - v0.95.2 alpha
+ * FE-Utility - v0.96 alpha
  * Userscript per il portale ivaservizi.agenziaentrate.gov.it
+ *
+ * Changelog 0.96α:
+ *   - NEW: Excel fatture — una riga per fattura (pivot multi-aliquota)
+ *   - NEW: Aliquote IVA (4%/5%/10%/22%) e codici natura (N1, N2.1, …) come
+ *     coppie di colonne dinamiche ordinate (Imp. X% | IVA X%)
  *
  * Changelog 0.95.2α:
  *   - FIX: Excel fatture sballato su Chrome/Edge — colonne lista rilevate
@@ -57,7 +63,7 @@
     window._FEPlugin = true;
 
     /* ─── COSTANTI ───────────────────────────────────────────────── */
-    var VERSION = '0.95.2\u03B1';  // 0.95.2α
+    var VERSION = '0.96\u03B1';  // 0.96α
     var INSTRUCTIONS_URL = 'https://denvermotel.github.io/fe-utility/';
 
     /* ─── UTILITY NUMERI ────────────────────────────────────────── */
@@ -987,12 +993,13 @@
 
     /**
      * FASE 3 – Genera l'Excel.
-     * Struttura Excel:
-     *   Data | N.Fattura | ID SDI | Tipo Doc | Nome C/F | P.IVA | Aliquota IVA |
-     *   Imponibile | Imposta | Tot.Imponibile | Tot.IVA | Totale Fattura | Bollo Virtuale
+     * Struttura Excel (v0.96):
+     *   Data | N.Fattura | ID SDI | Tipo Doc | Nome C/F | P.IVA
+     *   [Imp. 4% | IVA 4% | Imp. 5% | IVA 5% | ... colonne dinamiche per aliquota/natura]
+     *   Tot. Imponibile | Tot. IVA | Totale Fattura | Bollo Virtuale
      *
-     * Le fatture multi-aliquota hanno una riga per aliquota; i campi data/numero/nome
-     * sono ripetuti, i totali sono calcolati per fattura (somma di tutte le righe).
+     * Una riga per fattura; le aliquote IVA e i codici natura diventano coppie di
+     * colonne dinamiche ordinate (aliquote numeriche crescenti, poi natura alfabetico).
      */
     function generaExcelFatture(righe) {
         if (righe.length === 0) { setStatus('⚠ Nessuna riga da esportare.'); setRunning(false); return; }
@@ -1000,70 +1007,142 @@
         var piva = rileva_PIVA();
         var periodo = rilevaPeriodo();
 
-        // Raggruppa righe per numero fattura per calcolare i totali
-        var totaliPerFattura = {};
+        // ── PASSO A: normalizza vatId e raccoglie le colonne dinamiche ──────────
+        function normalizzaVatId(r) {
+            if (r.aliquota && r.aliquota.trim()) {
+                var n = parseFloat(r.aliquota);
+                if (!isNaN(n)) return n + '%';
+            }
+            if (r.natura && r.natura.trim()) return r.natura.trim();
+            return null;
+        }
+
+        var allAliquoteSet = {};
+        var allAliquoteOrder = [];
         righe.forEach(function (r) {
-            var key = r.idSdi || r.numero;
-            if (!totaliPerFattura[key]) totaliPerFattura[key] = { imp: 0, iva: 0 };
-            totaliPerFattura[key].imp += r.imponibile;
-            totaliPerFattura[key].iva += r.imposta;
+            var id = normalizzaVatId(r);
+            if (id && !allAliquoteSet[id]) {
+                allAliquoteSet[id] = true;
+                allAliquoteOrder.push(id);
+            }
         });
 
+        // Ordina: numerici (aliquote %) crescenti, poi natura alfabetico
+        allAliquoteOrder.sort(function (a, b) {
+            var aNum = parseFloat(a);
+            var bNum = parseFloat(b);
+            if (!isNaN(aNum) && !isNaN(bNum)) return aNum - bNum;
+            if (!isNaN(aNum)) return -1;
+            if (!isNaN(bNum)) return 1;
+            return a.localeCompare(b);
+        });
+
+        // ── PASSO B: pivot – una entry per fattura ───────────────────────────────
+        var fatture = {};   // key → oggetto fattura
+        var fattureOrder = [];  // mantiene ordine cronologico
+
+        righe.forEach(function (r) {
+            var key = r.idSdi || r.numero;
+            if (!fatture[key]) {
+                fatture[key] = {
+                    data: r.data, numero: r.numero, idSdi: r.idSdi,
+                    tipoDoc: r.tipoDoc, nome: r.nome, piva: r.piva,
+                    bollo: r.bollo,
+                    aliquote: {}  // vatId → {imp, iva}
+                };
+                fattureOrder.push(key);
+            }
+            var id = normalizzaVatId(r);
+            if (id) {
+                var nc = r.tipoDoc && r.tipoDoc.toLowerCase().indexOf('nota di credito') > -1;
+                var segno = nc ? -1 : 1;
+                if (!fatture[key].aliquote[id]) fatture[key].aliquote[id] = { imp: 0, iva: 0 };
+                fatture[key].aliquote[id].imp += segno * r.imponibile;
+                fatture[key].aliquote[id].iva += segno * r.imposta;
+            }
+        });
+
+        // ── PASSO C: intestazione dinamica ──────────────────────────────────────
+        var vatHeaders = '';
+        allAliquoteOrder.forEach(function (id) {
+            vatHeaders += '<th>Imp. ' + id + '</th><th>IVA ' + id + '</th>';
+        });
         var intestazione =
             '<th>Data</th><th>N. Fattura</th><th>ID SDI</th><th>Tipo Documento</th>' +
             '<th>Cliente / Fornitore</th><th>Partita IVA</th>' +
-            '<th>Aliquota IVA</th><th>Imponibile</th><th>Imposta</th>' +
+            vatHeaders +
             '<th>Tot. Imponibile</th><th>Tot. IVA</th><th>Totale Fattura</th>' +
             '<th>Bollo Virtuale</th>';
 
+        // ── PASSO D: una riga per fattura ────────────────────────────────────────
         var righeHtml = '';
         var totImpGlobale = 0, totIvaGlobale = 0;
-        // Per evitare doppio conteggio sui totali globali, sommiamo una volta per fattura
-        var fattureContate = {};
+        // Accumula totali per colonna aliquota (riga TOTALI in fondo)
+        var totPerVat = {};
+        allAliquoteOrder.forEach(function (id) { totPerVat[id] = { imp: 0, iva: 0 }; });
 
-        righe.forEach(function (r) {
-            var key = r.idSdi || r.numero;
-            var tot = totaliPerFattura[key] || { imp: r.imponibile, iva: r.imposta };
-            var totFatt = tot.imp + tot.iva;
-            var nc = r.tipoDoc && r.tipoDoc.toLowerCase().indexOf('nota di credito') > -1;
+        fattureOrder.forEach(function (key) {
+            var f = fatture[key];
+            var nc = f.tipoDoc && f.tipoDoc.toLowerCase().indexOf('nota di credito') > -1;
             var colorImp = nc ? 'color:red' : '';
 
-            if (!fattureContate[key]) {
-                fattureContate[key] = true;
-                totImpGlobale += tot.imp;
-                totIvaGlobale += tot.iva;
-            }
+            var totImp = 0, totIva = 0;
+            var vatCells = '';
+            allAliquoteOrder.forEach(function (id) {
+                var al = f.aliquote[id];
+                if (al) {
+                    totImp += al.imp;
+                    totIva += al.iva;
+                    totPerVat[id].imp += al.imp;
+                    totPerVat[id].iva += al.iva;
+                    vatCells +=
+                        '<td align="right" style="' + colorImp + '">' + fmtN(al.imp) + '</td>' +
+                        '<td align="right" style="' + colorImp + '">' + fmtN(al.iva) + '</td>';
+                } else {
+                    vatCells += '<td></td><td></td>';
+                }
+            });
+
+            var totFatt = totImp + totIva;
+            totImpGlobale += totImp;
+            totIvaGlobale += totIva;
 
             righeHtml +=
                 '<tr>' +
-                '<td align="center">' + r.data + '</td>' +
-                '<td align="center">' + r.numero + '</td>' +
-                '<td align="center">' + r.idSdi + '</td>' +
-                '<td>' + r.tipoDoc + '</td>' +
-                '<td>' + r.nome + '</td>' +
-                '<td align="center">' + r.piva + '</td>' +
-                '<td align="center">' + (r.aliquota || (r.natura || '')) + '</td>' +
-                '<td align="right" style="' + colorImp + '">' + fmtN(r.imponibile) + '</td>' +
-                '<td align="right" style="' + colorImp + '">' + fmtN(r.imposta) + '</td>' +
-                '<td align="right"><b style="' + colorImp + '">' + fmtN(tot.imp) + '</b></td>' +
-                '<td align="right"><b style="' + colorImp + '">' + fmtN(tot.iva) + '</b></td>' +
+                '<td align="center">' + f.data + '</td>' +
+                '<td align="center">' + f.numero + '</td>' +
+                '<td align="center">' + f.idSdi + '</td>' +
+                '<td>' + f.tipoDoc + '</td>' +
+                '<td>' + f.nome + '</td>' +
+                '<td align="center">' + f.piva + '</td>' +
+                vatCells +
+                '<td align="right"><b style="' + colorImp + '">' + fmtN(totImp) + '</b></td>' +
+                '<td align="right"><b style="' + colorImp + '">' + fmtN(totIva) + '</b></td>' +
                 '<td align="right"><b style="' + colorImp + '">' + fmtN(totFatt) + '</b></td>' +
-                '<td align="center">' + r.bollo + '</td>' +
+                '<td align="center">' + f.bollo + '</td>' +
                 '</tr>';
         });
 
+        // ── PASSO E: riga TOTALI ─────────────────────────────────────────────────
         var totaleGlobale = totImpGlobale + totIvaGlobale;
+        var vatTotCells = '';
+        allAliquoteOrder.forEach(function (id) {
+            vatTotCells +=
+                '<th align="right">' + fmtN(totPerVat[id].imp) + '</th>' +
+                '<th align="right">' + fmtN(totPerVat[id].iva) + '</th>';
+        });
         var rigaTotali =
             '<tr style="background:#c8e6c9;font-weight:bold">' +
-            '<th colspan="7" align="right">TOTALI:</th>' +
+            '<th colspan="6" align="right">TOTALI:</th>' +
+            vatTotCells +
             '<th align="right">' + fmtN(totImpGlobale) + '</th>' +
             '<th align="right">' + fmtN(totIvaGlobale) + '</th>' +
-            '<th></th><th></th>' +
             '<th align="right">' + fmtN(totaleGlobale) + '</th>' +
             '<th></th>' +
             '</tr>';
 
-        var nCols = 13;
+        var nCols = 6 + allAliquoteOrder.length * 2 + 4;
+
         // Sezione e periodo dal titolo della pagina
         var titoloEl = document.querySelector('h2.ng-binding, h2.no-margin-top');
         var titoloTesto = titoloEl ? titoloEl.innerText.trim() : 'Fatture';
@@ -1097,9 +1176,9 @@
         document.body.appendChild(a); a.click();
         setTimeout(function () { a.remove(); URL.revokeObjectURL(url); }, 3000);
 
-        var nFatture = Object.keys(fattureContate).length;
+        var nFatture = fattureOrder.length;
         setRunning(false);
-        setProgress(100, '✅ Excel: ' + filename + ' — ' + nFatture + ' fatture, ' + righe.length + ' righe IVA');
+        setProgress(100, '✅ Excel: ' + filename + ' — ' + nFatture + ' fatture');
         var prow = document.getElementById('FEPlugin_BottomRow');
         if (prow) setTimeout(function () { prow.style.setProperty('display','none','important'); }, 4000);
     }
@@ -1522,6 +1601,7 @@
 
         document.getElementById('FEPlugin_ApplicaDate').onclick = function () {
             var anno = parseInt(document.getElementById('FEPlugin_Anno').value);
+            if (isNaN(anno)) return;
             var sel = document.getElementById('FEPlugin_PeriodSel').value;
             if (!sel) return;
             var dalV, alV;
