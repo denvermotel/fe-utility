@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.97-alpha] — 2026-04-23
+
+### Fix
+- **Fatture transfrontaliere**: migliorata gestione fatture transfrontaliere
+
 ## [0.96-alpha] — 2026-04-23
 
 ### Nuovo
@@ -45,11 +50,9 @@
 - Logica di navigazione e lettura dettagli dal bookmarklet v0.94β (versione funzionante testata)
 - Accesso Angular tramite `unsafeWindow` per compatibilità sandbox Tampermonkey
 
-## [0.94-gamma] — 2026-02-25
-- Versione Tampermonkey con `trySetAllOnOnePage()` — **BUG**: leggeva solo pagina 1
-
-## [0.94-beta] — 2026-02-25
+## [0.94-alpha] — 2026-02-25
 - Versione bookmarklet funzionante con iterazione multi-pagina
 
-## [0.93-beta] — 2026-02-24
+
+## [0.93-alpha] — 2026-02-24
 - Prima versione pubblica con download fatture, export Excel, selettore date

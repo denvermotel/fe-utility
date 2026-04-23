@@ -3,7 +3,7 @@
 // @namespace      https://denvermotel.github.io/fe-utility/
 // @downloadURL    https://raw.githubusercontent.com/denvermotel/fe-utility/refs/heads/main/FE-Utility.user.js
 // @updateURL      https://raw.githubusercontent.com/denvermotel/fe-utility/refs/heads/main/FE-Utility.user.js
-// @version        0.96-alpha
+// @version        0.97-alpha
 // @description    Toolbox per ivaservizi.agenziaentrate.gov.it: scarica fatture, export Excel fatture/corrispettivi, selettore date rapido
 // @author         denvermotel
 // @match          https://ivaservizi.agenziaentrate.gov.it/*
@@ -22,8 +22,12 @@
 // ==/UserScript==
 
 /**
- * FE-Utility - v0.96 alpha
+ * FE-Utility - v0.97 alpha
  * Userscript per il portale ivaservizi.agenziaentrate.gov.it
+ *
+ * Changelog 0.97α:
+ *   - NEW: Scarica fatture e Fatture→Excel ora funzionano nelle sezioni
+ *     "Transfrontaliere attive" e "Transfrontaliere passive"
  *
  * Changelog 0.96α:
  *   - NEW: Excel fatture — una riga per fattura (pivot multi-aliquota)
@@ -63,7 +67,7 @@
     window._FEPlugin = true;
 
     /* ─── COSTANTI ───────────────────────────────────────────────── */
-    var VERSION = '0.96\u03B1';  // 0.96α
+    var VERSION = '0.97\u03B1';  // 0.97α
     var INSTRUCTIONS_URL = 'https://denvermotel.github.io/fe-utility/';
 
     /* ─── UTILITY NUMERI ────────────────────────────────────────── */
@@ -645,16 +649,16 @@
 
     function avviaExportFatture() {
         var hash = window.location.hash;
-        if (hash.indexOf('/fatture/') === -1) {
+        var suTransfrontaliere = hash.indexOf('/transfrontaliere/') > -1;
+        if (hash.indexOf('/fatture/') === -1 && !suTransfrontaliere) {
             alert('Vai prima nella sezione "Fatture emesse" o "Fatture acquisti".');
             return;
         }
         if (_inCorso) return;
 
-        // Chiedi se includere le transfrontaliere (solo su emesse)
         var suEmesse = hash.indexOf('/emesse') > -1;
         var includiTransfrontaliere = false;
-        if (suEmesse) {
+        if (!suTransfrontaliere && suEmesse) {
             includiTransfrontaliere = confirm('Includere le fatture transfrontaliere nel file Excel?');
         }
 
@@ -662,21 +666,78 @@
         resetMappaColonne();
         setProgress(0, 'Raccolta lista fatture...');
         setTimeout(function () {
-            raccogliListaFatture(1, getTotalPages(), [], includiTransfrontaliere, function (voci) {
-                if (_stop) { setRunning(false); return; }
-                if (voci.length === 0) {
-                    setRunning(false);
-                    setStatus('⚠ Nessuna fattura trovata.');
-                    return;
-                }
-                setStatus('▶ ' + voci.length + ' fatture. Lettura dettagli IVA...');
-                analizzaDettagliFatture(voci, 0, [], function (righe) {
+            if (suTransfrontaliere) {
+                raccogliTransfrontaliereDirette(1, getTotalPages(), [], function (voci) {
                     if (_stop) { setRunning(false); return; }
+                    if (voci.length === 0) {
+                        setRunning(false);
+                        setStatus('⚠ Nessuna fattura trovata.');
+                        return;
+                    }
                     setProgress(98, 'Generazione Excel...');
+                    var righe = [];
+                    voci.forEach(function (v) {
+                        righe.push({
+                            data: v.data, numero: v.numero, idSdi: v.idSdi,
+                            tipoDoc: v.tipoDoc, nome: v.nome, piva: v.piva,
+                            aliquota: '', imponibile: v.impTrans || 0, imposta: v.ivaTrans || 0,
+                            natura: '', bollo: ''
+                        });
+                    });
                     setTimeout(function () { generaExcelFatture(righe); }, 200);
                 });
-            });
+            } else {
+                raccogliListaFatture(1, getTotalPages(), [], includiTransfrontaliere, function (voci) {
+                    if (_stop) { setRunning(false); return; }
+                    if (voci.length === 0) {
+                        setRunning(false);
+                        setStatus('⚠ Nessuna fattura trovata.');
+                        return;
+                    }
+                    setStatus('▶ ' + voci.length + ' fatture. Lettura dettagli IVA...');
+                    analizzaDettagliFatture(voci, 0, [], function (righe) {
+                        if (_stop) { setRunning(false); return; }
+                        setProgress(98, 'Generazione Excel...');
+                        setTimeout(function () { generaExcelFatture(righe); }, 200);
+                    });
+                });
+            }
         }, 300);
+    }
+
+    /**
+     * Raccoglie transfrontaliere dirette (già sulla pagina /transfrontaliere/...).
+     * Itera tutte le pagine e legge le righe direttamente dalla lista.
+     */
+    function raccogliTransfrontaliereDirette(pagina, totPagine, voci, callback) {
+        if (_stop) { callback(voci); return; }
+
+        var righeT = document.querySelectorAll('tr[data-ng-repeat*="vm.items"]');
+        righeT.forEach(function (r) {
+            var tipoDoc  = r.children[1] ? r.children[1].innerText.trim() : '';
+            var numero   = r.children[2] ? r.children[2].innerText.trim() : '';
+            var data     = r.children[3] ? r.children[3].innerText.trim() : '';
+            var paese    = r.children[4] ? r.children[4].innerText.trim() : '';
+            var imp      = r.children[5] ? r.children[5].innerText.trim() : '';
+            var iva      = r.children[6] ? r.children[6].innerText.trim() : '';
+            if (!numero) return;
+            voci.push({
+                hash: null, tipoDoc: tipoDoc + ' (transfrontaliera)',
+                numero: numero, data: data, nome: paese, piva: '',
+                idSdi: '', transfrontaliera: true,
+                impTrans: convN(imp), ivaTrans: convN(iva)
+            });
+        });
+
+        setProgress(pagina / totPagine * 95, 'Raccolta pagina ' + pagina + '/' + totPagine);
+
+        if (pagina >= totPagine) {
+            callback(voci);
+        } else {
+            setPage(pagina + 1).then(function () {
+                raccogliTransfrontaliereDirette(pagina + 1, totPagine, voci, callback);
+            });
+        }
     }
 
     /**
@@ -1160,8 +1221,10 @@
             "</table>";
 
         var hash = window.location.hash;
-        var sezione = hash.indexOf('/emesse') > -1 ? 'emesse' :
-                      hash.indexOf('/ricevute') > -1 ? 'ricevute' : 'fatture';
+        var sezione = hash.indexOf('/transfrontaliere/') > -1
+            ? (hash.indexOf('/emesse') > -1 ? 'trans_emesse' : 'trans_ricevute')
+            : (hash.indexOf('/emesse') > -1 ? 'emesse' :
+               hash.indexOf('/ricevute') > -1 ? 'ricevute' : 'fatture');
         var parts = [];
         if (piva) parts.push(piva);
         if (periodo) parts.push(periodo);
