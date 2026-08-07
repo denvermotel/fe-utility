@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Privacy - FE-Utility</title>
+<meta name="description" content="Informativa privacy di FE-Utility: nessun dato raccolto, trasmesso o condiviso. Tutto resta nel browser di chi lo usa.">
+<style>
+    :root {
+        --inchiostro: #18181B;
+        --ardesia: #27272A;
+        --ardesia-chiara: #52525B;
+        --carta: #FAFAFA;
+        --carta-tenue: #A1A1AA;
+        --accento: #10B981;
+        --font-ui: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+        --font-cifre: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+
+    body {
+        font-family: var(--font-ui);
+        background: var(--inchiostro);
+        color: var(--carta);
+        line-height: 1.65;
+        -webkit-font-smoothing: antialiased;
+    }
+
+    .container { max-width: 720px; margin: 0 auto; padding: 0 24px; }
+
+    a { color: var(--accento); }
+    a:hover { color: #34D07A; }
+
+    code {
+        font-family: var(--font-cifre);
+        font-size: 0.88em;
+        background: var(--ardesia);
+        padding: 2px 6px;
+        border-radius: 3px;
+        color: var(--carta);
+    }
+
+    header {
+        border-bottom: 1px solid var(--ardesia);
+        padding: 48px 24px 40px;
+    }
+
+    .marchio {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-family: var(--font-cifre);
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: .12em;
+        color: var(--accento);
+        text-transform: uppercase;
+        margin-bottom: 24px;
+    }
+    .marchio a { color: var(--accento); text-decoration: none; }
+    .marchio a:hover { color: #34D07A; }
+
+    header h1 {
+        font-size: 1.9rem;
+        font-weight: 700;
+        letter-spacing: -0.01em;
+        margin-bottom: 10px;
+    }
+
+    .aggiornamento {
+        font-family: var(--font-cifre);
+        font-size: 12.5px;
+        color: var(--carta-tenue);
+    }
+
+    .riepilogo {
+        margin-top: 24px;
+        padding: 16px 18px;
+        border-left: 2px solid var(--accento);
+        background: var(--ardesia);
+        font-size: 14.5px;
+        color: var(--carta);
+        max-width: 560px;
+    }
+
+    main { padding: 48px 0 64px; }
+
+    section { margin-bottom: 40px; }
+
+    h2 {
+        font-size: 1.05rem;
+        font-weight: 700;
+        color: var(--carta);
+        margin-bottom: 12px;
+        letter-spacing: -0.005em;
+    }
+
+    p { margin-bottom: 12px; color: var(--carta-tenue); max-width: 620px; font-size: 14.5px; }
+    p strong { color: var(--carta); font-weight: 600; }
+
+    ul.elenco { list-style: none; max-width: 620px; }
+    ul.elenco li {
+        font-size: 14.5px; color: var(--carta-tenue);
+        padding: 5px 0 5px 18px; position: relative;
+    }
+    ul.elenco li::before {
+        content: ''; position: absolute; left: 0; top: 13px;
+        width: 5px; height: 5px; border-radius: 50%; background: var(--accento);
+    }
+
+    table.tabella {
+        width: 100%;
+        max-width: 620px;
+        border-collapse: collapse;
+        margin: 16px 0;
+        font-size: 13.5px;
+    }
+    table.tabella th {
+        text-align: left;
+        font-family: var(--font-cifre);
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: .06em;
+        text-transform: uppercase;
+        color: var(--carta-tenue);
+        padding: 8px 12px;
+        border-bottom: 1px solid var(--ardesia-chiara);
+    }
+    table.tabella td {
+        padding: 9px 12px;
+        border-bottom: 1px solid var(--ardesia);
+        color: var(--carta-tenue);
+    }
+    table.tabella tr:last-child td { border-bottom: none; }
+
+    /* La motivazione per lo store è testo tecnico rivolto a chi pubblica il
+       pacchetto, non all'utente finale: resta comunque qui per intero,
+       perché è quello che c'è in PRIVACY.md, ma con un'intestazione che
+       ne dichiara lo scopo diverso. */
+    .nota-tecnica {
+        border: 1px solid var(--ardesia);
+        border-radius: 4px;
+        padding: 20px 22px;
+    }
+    .nota-tecnica .etichetta {
+        display: inline-block;
+        font-family: var(--font-cifre);
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+        color: var(--carta-tenue);
+        margin-bottom: 10px;
+    }
+    blockquote {
+        margin: 14px 0 0;
+        padding: 14px 16px;
+        background: var(--ardesia);
+        border-left: 2px solid var(--ardesia-chiara);
+        font-size: 13.5px;
+        color: var(--carta-tenue);
+        max-width: 580px;
+    }
+
+    footer { padding: 40px 24px 56px; text-align: center; border-top: 1px solid var(--ardesia); }
+    footer p { color: var(--carta-tenue); font-size: 13px; max-width: none; margin-bottom: 0; }
+    footer .links { margin-top: 14px; font-size: 12.5px; }
+    footer .links a { color: var(--carta-tenue); text-decoration: none; }
+    footer .links a:hover { color: var(--accento); }
+    footer .separatore { color: var(--ardesia-chiara); margin: 0 8px; }
+
+    @media (max-width: 640px) {
+        header { padding: 36px 16px 32px; }
+        .container { padding: 0 16px; }
+    }
+</style>
+</head>
+<body>
+
+<header>
+    <div class="container">
+        <div class="marchio"><a href="index.html">FE·UTILITY</a></div>
+        <h1>Informativa privacy</h1>
+        <div class="aggiornamento">Ultimo aggiornamento: 8 agosto 2026</div>
+        <div class="riepilogo">
+            FE-Utility non raccoglie, non trasmette e non condivide alcun dato.
+            Tutto quello che tocca resta nel browser di chi lo usa.
+        </div>
+    </div>
+</header>
+
+<main>
+    <div class="container">
+
+        <section>
+            <h2>Cosa fa lo strumento</h2>
+            <p>
+                FE-Utility aggiunge una barra di comandi alle pagine di
+                <code>ivaservizi.agenziaentrate.gov.it</code>. Automatizza operazioni
+                che l'utente potrebbe fare a mano: aprire una fattura alla volta,
+                premere i pulsanti di download che il portale già espone, leggere le
+                tabelle a schermo e comporne un foglio di calcolo.
+            </p>
+            <p>
+                Non scarica nulla per conto proprio: <strong>clicca i pulsanti del
+                portale</strong>. È l'utente autenticato a scaricare i propri
+                documenti, con la propria sessione.
+            </p>
+        </section>
+
+        <section>
+            <h2>Quali dati vengono trattati</h2>
+            <p>
+                Lo strumento legge dalla pagina, mentre lavora, i dati che il portale
+                mostra a schermo: numeri di fattura, date, denominazioni, partite IVA,
+                importi, identificativi SdI. Questi dati vengono usati per costruire il
+                foglio di calcolo che l'utente scarica, e non escono mai dal browser.
+            </p>
+        </section>
+
+        <section>
+            <h2>Cosa viene memorizzato</h2>
+            <p>
+                Un solo archivio locale, il <strong>registro delle fatture già
+                scaricate</strong>. Contiene, per ogni documento, l'identificativo SdI
+                (o in mancanza partita IVA, numero e data), lo stato e la data di
+                scaricamento. Serve a non riscaricare due volte le stesse fatture e a
+                riprendere un lavoro interrotto.
+            </p>
+            <p>
+                Vi si aggiungono due gruppi di preferenze: il tema di colori della
+                barra, e le scelte su cosa scaricare (se prendere anche i file dei
+                metadati accanto all'XML, e se scaricare anche le fatture rifiutate
+                dalla pubblica amministrazione).
+            </p>
+            <p>
+                L'archivio sta in <code>chrome.storage.local</code> (o l'equivalente
+                Firefox) quando FE-Utility gira come estensione, nello storage dello
+                script manager quando gira come userscript. In entrambi i casi resta
+                sul dispositivo dell'utente e non viene sincronizzato con nessun
+                servizio.
+            </p>
+            <p>Si cancella disinstallando l'estensione.</p>
+        </section>
+
+        <section>
+            <h2>Cosa non viene fatto</h2>
+            <ul class="elenco">
+                <li>Nessuna richiesta di rete verso server dello sviluppatore o di terzi</li>
+                <li>Nessuna analisi statistica, nessun identificativo di installazione</li>
+                <li>Nessun accesso a cronologia, credenziali o dati di compilazione automatica</li>
+                <li>Nessuna lettura di siti diversi da <code>ivaservizi.agenziaentrate.gov.it</code></li>
+                <li>Nessun codice caricato da remoto: quello che si installa è tutto quello che viene eseguito</li>
+            </ul>
+        </section>
+
+        <section>
+            <h2>Permessi richiesti e perché</h2>
+            <table class="tabella">
+                <thead><tr><th>Permesso</th><th>Motivo</th></tr></thead>
+                <tbody>
+                    <tr><td><code>storage</code></td><td>Il registro delle fatture già scaricate e le preferenze (tema, cosa scaricare)</td></tr>
+                    <tr><td>accesso a <code>ivaservizi.agenziaentrate.gov.it</code></td><td>È l'unico sito su cui lo strumento funziona: legge le tabelle e preme i pulsanti di quelle pagine</td></tr>
+                </tbody>
+            </table>
+            <p>Non sono richiesti permessi di download, di rete, né l'accesso ad altri siti.</p>
+        </section>
+
+        <section>
+            <h2>Motivazione autorizzazione host</h2>
+            <div class="nota-tecnica">
+                <p style="margin-bottom:0;">
+                    L'estensione automatizza operazioni che l'utente farebbe comunque a
+                    mano sul portale Fatture e Corrispettivi dell'Agenzia delle Entrate:
+                    aprire in sequenza le fatture del periodo, premere i pulsanti di
+                    download che il portale già espone, leggere i dati mostrati a
+                    schermo per comporre un foglio di calcolo. L'autorizzazione host
+                    serve solo a iniettare lo script in quelle pagine ed è limitata a
+                    quel dominio. Non viene effettuata alcuna richiesta di rete verso
+                    server esterni, non viene letto né modificato alcun sito diverso da
+                    questo, e nessun dato lascia il browser dell'utente.
+                </p>
+            </div>
+        </section>
+
+        <section>
+            <h2>Contatti</h2>
+            <p>
+                Segnalazioni e domande:
+                <a href="https://github.com/denvermotel/fe-utility/issues" target="_blank" rel="noopener">github.com/denvermotel/fe-utility/issues</a>
+            </p>
+            <p>
+                Il codice sorgente è pubblico e leggibile, senza offuscamento, con
+                licenza GPL-3.0.
+            </p>
+        </section>
+
+    </div>
+</main>
+
+<footer>
+    <div class="container">
+        <p>FE-Utility è distribuito con licenza <a href="https://www.gnu.org/licenses/gpl-3.0" target="_blank" rel="noopener">GPL v3</a>.</p>
+        <div class="links">
+            <a href="index.html">Torna alla pagina principale</a>
+            <span class="separatore">·</span>
+            <a href="https://github.com/denvermotel/fe-utility">Codice sorgente</a>
+        </div>
+    </div>
+</footer>
+
+</body>
+</html>

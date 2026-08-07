@@ -1,0 +1,43 @@
+# Si versiona solo ciò che serve a installare e mantenere lo strumento.
+# Tutto il resto è escluso in partenza, così niente entra per distrazione:
+# la cartella test/ contiene schermate e pagine salvate dal portale, cioè
+# dati fiscali reali, e quello che finisce nella cronologia git non si toglie
+# più cancellando il file dopo.
+
+# Escludi tutto
+*
+
+# Poi riammetti i file di rilascio, uno per uno.
+# La barra iniziale li ancora alla radice: senza, "FE-Utility.user.js"
+# riammetterebbe anche le copie che pacchetto.sh lascia nelle cartelle
+# delle estensioni.
+!/.gitignore
+!/README.md
+!/CHANGELOG.md
+!/PRIVACY.md
+!/FE-Utility.user.js
+!/LICENSE
+
+# Pagine pubblicate su GitHub Pages: la sorgente del sito va impostata su
+# /docs nelle impostazioni del repository, altrimenti restano invisibili
+# anche se versionate.
+!/docs/
+!/docs/index.html
+!/docs/privacy.html
+
+# Estensioni: il sorgente condiviso e i due manifest.
+# Dentro estensione/chrome e estensione/firefox finiscono anche le copie
+# prodotte da pacchetto.sh (script, ponte, servizio, icone): sono duplicati
+# di quello che sta in comune/ e non vanno versionati.
+!estensione/
+!estensione/pacchetto.sh
+!estensione/comune/
+!estensione/comune/**
+!estensione/chrome/
+!estensione/chrome/manifest.json
+!estensione/firefox/
+!estensione/firefox/manifest.json
+
+# Rumore di sistema, in ogni caso
+.DS_Store
+Thumbs.db
