@@ -1,85 +1,56 @@
 # Informativa privacy - FE-Utility
 
-Ultimo aggiornamento: 8 agosto 2026
+Ultimo aggiornamento: 23 settembre 2026
 
 ## In breve
 
-FE-Utility non raccoglie, non trasmette e non condivide alcun dato. Tutto
-quello che tocca resta nel browser di chi lo usa.
+FE-Utility non raccoglie, non trasmette e non condivide dati. I dati che tratta restano nel browser di chi lo usa.
 
 ## Cosa fa lo strumento
 
-FE-Utility aggiunge una barra di comandi alle pagine di
-`ivaservizi.agenziaentrate.gov.it`. Automatizza operazioni che l'utente
-potrebbe fare a mano: aprire una fattura alla volta, premere i pulsanti di
-download che il portale già espone, leggere le tabelle a schermo e comporne un
-foglio di calcolo.
+FE-Utility aggiunge una barra di comandi alle pagine di `ivaservizi.agenziaentrate.gov.it`. Automatizza operazioni che potresti fare a mano: aprire le fatture del periodo una alla volta, scaricarne i file, ricopiare i dati in un foglio di calcolo.
 
-Non scarica nulla per conto proprio: **clicca i pulsanti del portale**. È
-l'utente autenticato a scaricare i propri documenti, con la propria sessione.
+Per farlo interroga il portale con le stesse richieste che la pagina fa quando la usi: elenco dei documenti, dettaglio, file della fattura. Le richieste partono dal tuo browser, verso il solo dominio del portale, con la tua sessione autenticata. Scarichi i tuoi documenti come faresti dalla pagina.
 
 ## Quali dati vengono trattati
 
-Lo strumento legge dalla pagina, mentre lavora, i dati che il portale mostra a
-schermo: numeri di fattura, date, denominazioni, partite IVA, importi,
-identificativi SdI. Questi dati vengono usati per costruire il foglio di
-calcolo che l'utente scarica, e non escono mai dal browser.
+Mentre lavora, lo strumento legge le risposte del portale: numeri di fattura, date, denominazioni, partite IVA, importi, identificativi SdI, dati dei corrispettivi trasmessi. Li usa per salvare i file e per costruire il foglio di calcolo che scarichi. Non li invia altrove.
 
 ## Cosa viene memorizzato
 
-Un solo archivio locale, il **registro delle fatture già scaricate**. Contiene,
-per ogni documento, l'identificativo SdI (o in mancanza partita IVA, numero e
-data), lo stato e la data di scaricamento. Serve a non riscaricare due volte le
-stesse fatture e a riprendere un lavoro interrotto.
+Un solo archivio locale, il **registro delle fatture già scaricate**. Per ogni documento contiene l'identificativo SdI (in mancanza partita IVA, numero e data), lo stato e la data dello scarico. Serve a non riscaricare le stesse fatture e a riprendere un lavoro interrotto.
 
-Vi si aggiungono due gruppi di preferenze: il tema di colori della barra, e le
-scelte su cosa scaricare (se prendere anche i file dei metadati accanto
-all'XML, e se scaricare anche le fatture rifiutate dalla pubblica
-amministrazione).
+L'archivio conserva anche due gruppi di preferenze: il tema di colori della barra e le scelte su cosa scaricare (i file dei metadati accanto all'XML, le fatture rifiutate dalla pubblica amministrazione).
 
-L'archivio sta in `chrome.storage.local` (o l'equivalente Firefox) quando
-FE-Utility gira come estensione, nello storage dello script manager quando gira
-come userscript. In entrambi i casi resta sul dispositivo dell'utente e non
-viene sincronizzato con nessun servizio.
+Come estensione, FE-Utility usa `chrome.storage.local` o l'equivalente di Firefox. Come userscript, usa lo storage dello script manager. In entrambi i casi l'archivio resta sul tuo dispositivo e nessun servizio lo sincronizza.
 
-Si cancella disinstallando l'estensione.
+Disinstallando l'estensione cancelli l'archivio.
 
-## Cosa non viene fatto
+## Cosa non fa
 
 - Nessuna richiesta di rete verso server dello sviluppatore o di terzi
-- Nessuna analisi statistica, nessun identificativo di installazione
+- Nessuna statistica d'uso e nessun identificativo di installazione
 - Nessun accesso a cronologia, credenziali o dati di compilazione automatica
 - Nessuna lettura di siti diversi da `ivaservizi.agenziaentrate.gov.it`
-- Nessun codice caricato da remoto: quello che si installa è tutto quello che
-  viene eseguito
+- Nessun codice caricato da remoto: esegue solo il codice che installi
 
 ## Permessi richiesti e perché
 
 | Permesso | Motivo |
 |---|---|
-| `storage` | Il registro delle fatture già scaricate e le preferenze (tema, cosa scaricare) |
-| accesso a `ivaservizi.agenziaentrate.gov.it` | È l'unico sito su cui lo strumento funziona: legge le tabelle e preme i pulsanti di quelle pagine |
+| `storage` | Registro delle fatture già scaricate e preferenze (tema, cosa scaricare) |
+| accesso a `ivaservizi.agenziaentrate.gov.it` | È l'unico sito su cui lo strumento funziona: aggiunge la barra alle sue pagine e ne interroga gli elenchi con la sessione dell'utente |
 
-Non sono richiesti permessi di download, di rete, né l'accesso ad altri siti.
+Lo strumento non chiede il permesso `downloads`: salva i file come un normale download avviato dalla pagina. Non chiede accesso ad altri siti.
 
 ## Motivazione autorizzazione host (Chrome Web Store)
 
-Nel modulo di pubblicazione, alla voce *Giustificazione autorizzazione host*,
-incollare questo testo. Riguarda l'accesso a
-`https://ivaservizi.agenziaentrate.gov.it/*`, l'unico dominio richiesto:
+Nel modulo di pubblicazione, alla voce *Giustificazione autorizzazione host*, incollare questo testo. Riguarda `https://ivaservizi.agenziaentrate.gov.it/*`, l'unico dominio richiesto:
 
-> L'estensione automatizza operazioni che l'utente farebbe comunque a mano sul
-> portale Fatture e Corrispettivi dell'Agenzia delle Entrate: aprire in
-> sequenza le fatture del periodo, premere i pulsanti di download che il
-> portale già espone, leggere i dati mostrati a schermo per comporre un
-> foglio di calcolo. L'autorizzazione host serve solo a iniettare lo script in
-> quelle pagine ed è limitata a quel dominio. Non viene effettuata alcuna
-> richiesta di rete verso server esterni, non viene letto né modificato alcun
-> sito diverso da questo, e nessun dato lascia il browser dell'utente.
+> L'estensione automatizza operazioni che l'utente farebbe a mano sul portale Fatture e Corrispettivi dell'Agenzia delle Entrate: scaricare le fatture del periodo e comporre un foglio di calcolo con i loro dati. Per farlo interroga il portale con le stesse richieste che la pagina usa, dal browser dell'utente e con la sua sessione. L'autorizzazione host serve a inserire lo script in quelle pagine ed è limitata a quel dominio. L'estensione non contatta server esterni, non legge né modifica altri siti, e i dati restano nel browser dell'utente.
 
 ## Contatti
 
 Segnalazioni e domande: <https://github.com/denvermotel/fe-utility/issues>
 
-Il codice sorgente è pubblico e leggibile, senza offuscamento, con licenza
-GPL-3.0.
+Il codice sorgente è pubblico, leggibile e senza offuscamento, con licenza GPL-3.0.

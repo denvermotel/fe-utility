@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>FE-Utility - Toolbox per Fatture e Corrispettivi</title>
-<meta name="description" content="Userscript ed estensione per il portale ivaservizi.agenziaentrate.gov.it: scarico massivo di fatture, export in Excel, scarico automatico per anno intero. Nessun dato lascia il browser.">
+<meta name="description" content="Userscript ed estensione per il portale ivaservizi.agenziaentrate.gov.it: scarico massivo di fatture, export in Excel di fatture e corrispettivi, scarico per anno intero. I dati restano nel browser.">
 <style>
     :root {
         --inchiostro: #18181B;
@@ -401,11 +401,11 @@
 
 <header class="hero">
     <div class="container">
-        <div class="marchio">FE·UTILITY <span class="versione">1.0</span></div>
+        <div class="marchio">FE·UTILITY <span class="versione">1.1</span></div>
         <h1>Scarico massivo e export Excel per Fatture e Corrispettivi</h1>
         <p class="tesi">
-            Userscript ed estensione per Firefox e Chrome per il portale Fatture e Corrispettivi dell'Agenzia delle Entrate. Scarica in blocco XML e metadati, esporta fatture e corrispettivi in fogli di calcolo.
-            Nessun dato lascia il browser.
+            Userscript ed estensione per Firefox e Chrome, per il portale Fatture e Corrispettivi dell'Agenzia delle Entrate. Scarichi in blocco XML e metadati ed esporti fatture e corrispettivi in Excel.
+            I dati restano nel tuo browser.
         </p>
         <div class="azioni">
             <a class="btn btn-primario" href="https://raw.githubusercontent.com/denvermotel/fe-utility/refs/heads/main/FE-Utility.user.js">
@@ -414,6 +414,9 @@
             <a class="btn btn-quieto" href="#estensioni">Estensioni Chrome e Firefox</a>
             <a class="btn btn-quieto" href="https://github.com/denvermotel/fe-utility" target="_blank" rel="noopener">
                 Codice sorgente
+            </a>
+            <a class="btn btn-quieto" href="https://github.com/denvermotel/fe-utility/issues" target="_blank" rel="noopener">
+                Segnala un problema
             </a>
         </div>
     </div>
@@ -433,7 +436,6 @@
             <div class="nastro" aria-hidden="true" id="nastroFirma"></div>
             <span class="testo">312/340   4 saltate   2 errori   residuo ~1m 40s</span>
         </div>
-        <p>.</p>
 
     </div>
 </header>
@@ -442,7 +444,7 @@
     <div class="container">
         <span class="etichetta">Guida rapida</span>
         <h2>Installazione dello userscript</h2>
-        <p>Richiede un gestore di userscript nel browser. Due minuti, un solo clic per l'installazione vera e propria.</p>
+        <p>Ti serve un gestore di userscript nel browser. Poi installi FE-Utility con un clic.</p>
 
         <div class="schede-browser" role="tablist">
             <button class="scheda-browser" role="tab" aria-selected="true" aria-controls="pannello-chrome" onclick="cambiaBrowser('chrome')">Chrome</button>
@@ -462,7 +464,7 @@
                     <div class="passo">
                         <div class="numero">2</div>
                         <div><h4>Abilita gli script utente</h4>
-                        <p>Passaggio obbligatorio: <strong>senza, lo script non parte.</strong></p>
+                        <p>Se salti questo passaggio <strong>lo script non parte</strong>, e non vedi nessun errore.</p>
                         <ol>
                             <li>Apri <code>chrome://extensions</code></li>
                             <li>Trova <strong>Tampermonkey</strong>, apri <strong>Dettagli</strong></li>
@@ -492,7 +494,7 @@
                     <div class="passo">
                         <div class="numero">2</div>
                         <div><h4>Abilita gli script utente</h4>
-                        <p>Passaggio obbligatorio: <strong>senza, lo script non parte.</strong></p>
+                        <p>Se salti questo passaggio <strong>lo script non parte</strong>, e non vedi nessun errore.</p>
                         <ol>
                             <li>Apri <code>edge://extensions</code></li>
                             <li>Trova <strong>Tampermonkey</strong>, apri <strong>Dettagli</strong></li>
@@ -523,7 +525,7 @@
                     <div class="passo">
                         <div class="numero">2</div>
                         <div><h4>Installa FE-Utility</h4>
-                        <p><a href="https://raw.githubusercontent.com/denvermotel/fe-utility/refs/heads/main/FE-Utility.user.js">Clicca qui</a>: nessun passaggio aggiuntivo richiesto su Firefox.</p></div>
+                        <p><a href="https://raw.githubusercontent.com/denvermotel/fe-utility/refs/heads/main/FE-Utility.user.js">Clicca qui</a>. Su Firefox non servono altri passaggi.</p></div>
                     </div>
                     <div class="passo">
                         <div class="numero">3</div>
@@ -570,24 +572,24 @@
         <span class="etichetta">In arrivo</span>
         <h2>Estensioni Chrome e Firefox</h2>
         <p>
-            Stesso identico sorgente dello userscript, confezionato per i due store
-            ufficiali. Nessun passaggio manuale di attivazione: si installa e basta.
+            Lo stesso sorgente dello userscript, confezionato per i due store
+            ufficiali. Installi l'estensione e funziona, senza attivazioni manuali.
             L'icona apre un menu con i comandi; durante uno scarico la barra compare
-            nella pagina per mostrare l'avanzamento.
+            nella pagina con l'avanzamento.
         </p>
 
         <div class="carte-store">
             <div class="carta-store">
                 <span class="badge-attesa">In attesa di approvazione</span>
                 <h4>Chrome Web Store</h4>
-                <p>Il link comparirà qui non appena il pacchetto sarà approvato.</p>
+                <p>Il link arriva qui quando Google approva il pacchetto.</p>
                 <!-- Una volta approvato: sostituire aria-disabled="true" con href reale -->
                 <a class="btn btn-quieto" aria-disabled="true" href="#" onclick="return false;">Apri sul Web Store</a>
             </div>
             <div class="carta-store">
                 <span class="badge-attesa">In attesa di approvazione</span>
                 <h4>Firefox Add-ons</h4>
-                <p>Il link comparirà qui non appena il pacchetto sarà approvato.</p>
+                <p>Il link arriva qui quando Mozilla approva il pacchetto.</p>
                 <!-- Una volta approvato: sostituire aria-disabled="true" con href reale -->
                 <a class="btn btn-quieto" aria-disabled="true" href="#" onclick="return false;">Apri su AMO</a>
             </div>
@@ -599,12 +601,12 @@
     <div class="container">
         <span class="etichetta">Cosa fa</span>
         <h2>Funzionalità</h2>
-        <p>Tutto avviene nel browser. Nessuna elaborazione remota, nessun server.</p>
+        <p>FE-Utility lavora nel tuo browser. Non passa da nessun server esterno.</p>
 
         <div class="griglia-funzioni">
             <div class="carta-funzione">
                 <h4>Scarica fatture</h4>
-                <p>Apre in sequenza tutte le fatture del periodo e scarica XML e metadati cliccando i pulsanti che il portale già espone. Un registro locale evita di riscaricare due volte lo stesso documento e permette di riprendere un lavoro interrotto.</p>
+                <p>Scarica XML e metadati di tutte le fatture del periodo. Un registro locale ricorda cosa hai già scaricato e ti fa riprendere un lavoro interrotto. Sulle transfrontaliere scegli se prendere solo quelle o tutte.</p>
             </div>
             <div class="carta-funzione">
                 <h4>Fatture in Excel</h4>
@@ -612,19 +614,19 @@
             </div>
             <div class="carta-funzione">
                 <h4>Corrispettivi in Excel</h4>
-                <p>Un file solo, un foglio per matricola dispositivo più un riepilogo, con colonne dinamiche per aliquota.</p>
+                <p>Un file con un foglio per matricola e un riepilogo. Registratori telematici e documenti commerciali online divisi per aliquota; distributori automatici con il venduto calcolato fra due letture consecutive.</p>
             </div>
             <div class="carta-funzione">
                 <h4>Anno intero</h4>
-                <p>Il portale non accetta intervalli oltre i tre mesi: un anno viene spezzato in trimestri ed eseguito in sequenza, con un solo resoconto alla fine.</p>
+                <p>Il portale non accetta intervalli oltre i tre mesi. FE-Utility divide l'anno in trimestri, li esegue in fila e ti dà un solo resoconto alla fine.</p>
             </div>
             <div class="carta-funzione">
                 <h4>Selettore del periodo</h4>
-                <p>Compare da sé nel form del portale, con scorciatoie da tastiera per trimestri e mesi.</p>
+                <p>Compare sopra i campi Dal e Al del portale, con scorciatoie da tastiera per trimestri e mesi.</p>
             </div>
             <div class="carta-funzione">
                 <h4>Temi e preferenze</h4>
-                <p>Quattro combinazioni di colore e la scelta su cosa scaricare (metadati, fatture rifiutate dalla PA), tutto salvato in locale.</p>
+                <p>Quattro combinazioni di colore e la scelta su cosa scaricare (metadati, fatture rifiutate dalla PA). Le preferenze restano sul tuo computer.</p>
             </div>
         </div>
 
@@ -667,10 +669,10 @@
     <div class="container">
         <span class="etichetta">Per chi legge il codice</span>
         <h2>Note tecniche</h2>
-        <p>Il portale usa AngularJS 1.x con paginazione lato server a 50 record fissi: non esiste modo di aggirarla, lo script scorre le pagine davvero. Nessuna chiamata agli endpoint interni, non documentati e soggetti a cambiare senza preavviso: solo lettura del DOM e clic sui pulsanti che il portale già espone.</p>
-        <p>Le attese non sono a tempo fisso: uno <code>MutationObserver</code> osserva il DOM e prosegue non appena la vista è pronta.</p>
-        <p><strong>Nessun dato lascia il browser.</strong> Lo storage resta locale (<code>GM_setValue</code> sotto Tampermonkey, <code>chrome.storage</code> nelle estensioni), non è mai sincronizzato con alcun servizio. Dettagli nell'<a href="privacy.html">informativa privacy</a>.</p>
-        <p>Codice leggibile e non minificato, licenza GPL-3.0, nessuna dipendenza esterna a runtime.</p>
+        <p>Da settembre 2026 il portale è un'applicazione React e non mostra più nella pagina gli identificativi delle fatture. La 1.1 legge elenchi e dettagli dalle stesse API REST che la pagina chiama, con la sessione dell'utente già autenticato, e non contatta altri server. L'Agenzia può cambiare queste API senza preavviso: se una chiamata fallisce, la barra riporta l'errore con il percorso chiamato.</p>
+        <p><strong>I dati restano nel browser.</strong> Lo storage è locale (<code>GM_setValue</code> sotto Tampermonkey, <code>chrome.storage</code> nelle estensioni) e nessun servizio lo sincronizza. Dettagli nell'<a href="privacy.html">informativa privacy</a>.</p>
+        <p>Codice aperto, licenza GPL-3.0, nessuna dipendenza esterna.</p>
+        <p>Dallo stesso codice e dalla stessa impostazione nasce il progetto gemello <strong><a href="https://github.com/denvermotel/Cassetto_Utility" target="_blank" rel="noopener">Cassetto_Utility</a></strong>, per il Cassetto Fiscale dell'Agenzia delle Entrate. Trovi i dettagli sulla <a href="https://denvermotel.github.io/Cassetto_Utility/" target="_blank" rel="noopener">pagina del progetto</a>.</p>
     </div>
 </section>
 
@@ -681,7 +683,18 @@
         <p>Cronologia completa nel <a href="https://github.com/denvermotel/fe-utility/blob/main/CHANGELOG.md" target="_blank" rel="noopener">repository</a>.</p>
 
         <div class="voce-changelog">
-            <div class="intestazione-changelog">1.0 <span class="tag-attuale">Attuale</span></div>
+            <div class="intestazione-changelog">1.1 <span class="tag-attuale">Attuale</span></div>
+            <ul class="elenco-changelog">
+                <li>Riscrittura dello userscript per il nuovo portale Fatture e Corrispettivi</li>
+                <li>Export in .xlsx: Excel apre i file senza avvisi di formato</li>
+                <li>Corrispettivi dei distributori automatici, con il venduto calcolato fra due letture</li>
+                <li>Sulle transfrontaliere, scelta fra sole transfrontaliere e tutte le fatture</li>
+                <li>Selettore del periodo adeguato al nuovo form del portale</li>
+                <li>Barra esclusa dalle stampe e dai PDF</li>
+            </ul>
+        </div>
+        <div class="voce-changelog">
+            <div class="intestazione-changelog">1.0</div>
             <ul class="elenco-changelog">
                 <li>Scarico di un anno intero, spezzato in trimestri con un solo resoconto</li>
                 <li>Selettore del periodo integrato nella barra</li>

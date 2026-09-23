@@ -3,7 +3,7 @@
 // @namespace      https://denvermotel.github.io/fe-utility/
 // @downloadURL    https://raw.githubusercontent.com/denvermotel/fe-utility/refs/heads/main/FE-Utility.user.js
 // @updateURL      https://raw.githubusercontent.com/denvermotel/fe-utility/refs/heads/main/FE-Utility.user.js
-// @version        1.0.0
+// @version        1.1.0
 // @description    Toolbox per il portale "Fatture & Corrispettivi" dell'Agenzia delle Entrate (ivaservizi.agenziaentrate.gov.it): scarica fatture, export Excel fatture/corrispettivi, selettore date rapido
 // @author         denvermotel
 // @match          https://ivaservizi.agenziaentrate.gov.it/*
@@ -34,7 +34,7 @@
  *   motore attese     attendi() e le condizioni di vista pronta
  *   interfaccia       barra, avanzamento, dialoghi
  *   lettori DOM       la parte che si rompe se l'Agenzia tocca il portale
- *   costruttore XLS   SpreadsheetML
+ *   costruttore XLSX  OOXML (ZIP + parti XML)
  *   flussi            download, export fatture, export corrispettivi, date
  */
 (function () {
@@ -52,7 +52,7 @@
     // Forma breve, quella che l'utente vede nella barra. @version in testa al
     // file e i manifest restano a tre cifre, come vogliono gli store: la
     // relazione fra le due forme è verificata da un test, non solo dichiarata.
-    var VERSION = '1.0';
+    var VERSION = '1.1';
     var INSTRUCTIONS_URL = 'https://denvermotel.github.io/fe-utility/';
 
     /* ─── UTILITY NUMERI ────────────────────────────────────────── */
@@ -73,6 +73,58 @@
     function fmtN(n) { return FmtNum.format(n); }
 
     function pad2(n) { return String(n).padStart(2, '0'); }
+
+    /* ─── FORMATO DATE E IMPORTI DELLE API REST ────────────────────
+       Le risposte REST del portale usano formati diversi da quelli già
+       gestiti da convN()/fmtDataIt(): importi con segno esplicito e zeri
+       di riempimento, date ISO invece di "dd/mm/yyyy". Questi helper
+       traducono, senza toccare fetch/document: sono le uniche funzioni di
+       questo modulo testabili da node test/esegui.mjs.
+    ─────────────────────────────────────────────────────────────── */
+
+    /** "+000000001254,00" → 1254. "-000000000110,00" → -110. Stringa vuota → 0. */
+    function convApiImporto(s) {
+        if (!s) return 0;
+        var testo = String(s).trim();
+        var segno = testo.charAt(0) === '-' ? -1 : 1;
+        var corpo = testo.replace(/^[+-]/, '').replace(',', '.');
+        var n = parseFloat(corpo);
+        return isNaN(n) ? 0 : segno * n;
+    }
+
+    /** "2026-09-21" o "2026-09-21T22:58:41" → "21/09/2026". Stringa vuota → ''. */
+    function isoADataIt(iso) {
+        if (!iso) return '';
+        var soloData = String(iso).split('T')[0];
+        var p = soloData.split('-');
+        if (p.length !== 3) return '';
+        return p[2] + '/' + p[1] + '/' + p[0];
+    }
+
+    /** "2026-09-21" → "21092026" (ddMMyyyy, per i segmenti delle URL REST). */
+    function isoAggMmYyyy(iso) {
+        if (!iso) return '';
+        var soloData = String(iso).split('T')[0];
+        var p = soloData.split('-');
+        if (p.length !== 3) return '';
+        return p[2] + p[1] + p[0];
+    }
+
+    /** "21/09/2026" → "21092026" (ddMMyyyy, per i segmenti delle URL REST). */
+    function dataItADdMmYyyy(it) {
+        if (!it) return '';
+        var p = String(it).split('/');
+        if (p.length !== 3) return '';
+        return p[0] + p[1] + p[2];
+    }
+
+    /** "21/09/2026" → "2026-09-21" (ISO, per assegnare .value a <input type="date">). */
+    function dataItAIso(it) {
+        if (!it) return '';
+        var p = String(it).split('/');
+        if (p.length !== 3) return '';
+        return p[2] + '-' + p[1] + '-' + p[0];
+    }
 
     /* ═══════════════════════════════════════════════════════════════
        DEPOSITO
@@ -212,45 +264,94 @@
         };
     })();
 
-    /* ─── ANGULAR HELPERS ───────────────────────────────────────── */
-    var _win = (typeof unsafeWindow !== 'undefined') ? unsafeWindow : window;
-    function getAngular() { return _win.angular; }
+    /* ═══════════════════════════════════════════════════════════════
+       API DIRETTE DEL PORTALE
 
-    /**
-     * Cerca lo scope AngularJS che contiene vm.pager.
-     * Funziona sia sulla pagina fatture che corrispettivi.
-     */
-    function getVmScope() {
-        var ng = getAngular();
-        if (!ng) return null;
-        // Cerca prima dalla nav di paginazione
-        var nav = document.querySelector('nav[aria-label*="aginaz"]');
-        if (nav) {
-            var s = ng.element(nav).scope();
-            while (s) { if (s.vm && s.vm.pager) return s; s = s.$parent; }
-        }
-        // Fallback: cerca dalla prima riga ng-repeat
-        var row = document.querySelector('[data-ng-repeat*="vm.items"]');
-        if (row) {
-            var s2 = ng.element(row).scope();
-            while (s2) { if (s2.vm && s2.vm.pager) return s2; s2 = s2.$parent; }
-        }
-        return null;
+       Dal rifacimento React di settembre 2026 l'id di una fattura/di un
+       corrispettivo non compare più da nessuna parte nel DOM renderizzato
+       (vedi dev/RELAZIONE_2026-09-22_..., §6.1): l'unico modo per sapere
+       quali documenti esistono nel periodo, senza restare sincronizzati
+       col rendering della lista, è chiamare direttamente le stesse API
+       REST che la pagina usa già sotto al cofano.
+
+       Autenticazione: due header, x-b2bcookie e x-token, ottenuti da una
+       chiamata a tokenB2BCookie/get (li restituisce come header di
+       risposta, non nel corpo — verificato il 22/9/2026 su cattura HAR
+       reale). Stessa origine della pagina: i cookie di sessione
+       dell'utente già autenticato viaggiano da soli, senza bisogno di
+       impostare nulla.
+    ═══════════════════════════════════════════════════════════════ */
+
+    var _tokenApi = null;   // { b2bCookie, token }, cache per la durata della pagina
+
+    /** Ottiene (o rinnova, se forza è vero) gli header di autenticazione REST. */
+    function otteniTokenApi(forza) {
+        if (_tokenApi && !forza) return Promise.resolve(_tokenApi);
+        return fetch('/cons/cons-services/sc/tokenB2BCookie/get?v=' + Date.now(),
+                      { credentials: 'same-origin' })
+            .then(function (r) {
+                var b2b = r.headers.get('x-b2bcookie');
+                var tok = r.headers.get('x-token');
+                if (!b2b || !tok) {
+                    throw new Error('Sessione non riconosciuta dal portale (x-b2bcookie/x-token assenti). Ricarica la pagina e riprova.');
+                }
+                _tokenApi = { b2bCookie: b2b, token: tok };
+                return _tokenApi;
+            });
     }
 
-    function getTotalPages() {
-        var scope = getVmScope();
-        if (scope && scope.vm.pager) return scope.vm.pager.totalPages || 1;
-        // Fallback DOM: conta i li numerati nella paginazione
-        var liPages = document.querySelectorAll('nav[aria-label*="aginaz"] li[data-ng-repeat]');
-        return liPages.length || 1;
+    function _urlConCacheBuster(percorso) {
+        return percorso + (percorso.indexOf('?') > -1 ? '&' : '?') + 'v=' + Date.now();
     }
 
-    function getPaginaCorrente() {
-        var scope = getVmScope();
-        if (scope && scope.vm.pager && scope.vm.pager.currentPage) return scope.vm.pager.currentPage;
-        var attiva = document.querySelector('nav[aria-label*="aginaz"] li.active a');
-        return attiva ? parseInt(attiva.textContent.trim(), 10) || 0 : 0;
+    /** GET autenticata verso un endpoint REST del portale. Risolve il JSON già parsato. */
+    function chiamataApi(percorso, tentativoRipetuto) {
+        return otteniTokenApi(tentativoRipetuto).then(function (t) {
+            return fetch(_urlConCacheBuster(percorso), {
+                credentials: 'same-origin',
+                headers: { 'x-b2bcookie': t.b2bCookie, 'x-token': t.token }
+            });
+        }).then(function (r) {
+            if ((r.status === 401 || r.status === 403) && !tentativoRipetuto) {
+                _tokenApi = null;
+                return chiamataApi(percorso, true);
+            }
+            if (!r.ok) throw new Error('Il portale ha risposto ' + r.status + ' per ' + percorso);
+            return r.json();
+        });
+    }
+
+    /** Come chiamataApi, ma per endpoint che restituiscono un file (XML) invece di JSON. */
+    function scaricaFileApi(percorso, tentativoRipetuto) {
+        return otteniTokenApi(tentativoRipetuto).then(function (t) {
+            return fetch(_urlConCacheBuster(percorso), {
+                credentials: 'same-origin',
+                headers: { 'x-b2bcookie': t.b2bCookie, 'x-token': t.token }
+            });
+        }).then(function (r) {
+            if ((r.status === 401 || r.status === 403) && !tentativoRipetuto) {
+                _tokenApi = null;
+                return scaricaFileApi(percorso, true);
+            }
+            if (!r.ok) throw new Error('Download fallito (' + r.status + ') per ' + percorso);
+            var cd = r.headers.get('content-disposition') || '';
+            var m = /filename=([^;]+)/i.exec(cd);
+            if (!m) throw new Error('Risposta senza nome file (Content-Disposition assente) per ' + percorso + ': il documento probabilmente non è scaricabile.');
+            var nome = m[1].trim().replace(/^"|"$/g, '');
+            return r.blob().then(function (blob) { return { blob: blob, nome: nome }; });
+        });
+    }
+
+    /** Avvia il salvataggio di un Blob come se l'utente avesse cliccato un link di download. */
+    function salvaBlob(blob, nomeFile) {
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = nomeFile;
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(function () { a.remove(); URL.revokeObjectURL(url); }, 3000);
     }
 
     /* ═══════════════════════════════════════════════════════════════
@@ -268,7 +369,7 @@
 
     var ATTESA_TIMEOUT = 12000;   // limite oltre il quale si rinuncia
     var ATTESA_POLL    = 120;     // rete di sicurezza se il DOM non si muove
-    var ATTESA_QUIETE  = 60;      // pausa dopo il primo esito vero, per far assestare Angular
+    var ATTESA_QUIETE  = 60;      // pausa dopo il primo esito vero, per far assestare la vista
 
     /**
      * Attende che condizione() torni vero.
@@ -285,8 +386,9 @@
                 clearInterval(idPoll);
                 osservatore.disconnect();
                 if (!esito) { resolve(false); return; }
-                // Angular applica le direttive subito dopo aver popolato il DOM:
-                // un istante di quiete evita di leggere una vista a metà.
+                // Il framework della pagina applica gli aggiornamenti subito dopo
+                // aver popolato il DOM: un istante di quiete evita di leggere una
+                // vista a metà.
                 setTimeout(function () { resolve(true); }, ATTESA_QUIETE);
             }
 
@@ -312,103 +414,11 @@
        pronta. Sono il punto in cui si interviene se il portale cambia.
     ─────────────────────────────────────────────────────────────── */
 
+    /** Righe della tabella lista sul nuovo frontend React/Bootstrap 5. */
     function righeLista() {
-        return document.querySelectorAll('tr[data-ng-repeat*="vm.items"], tr[data-ng-repeat*="fatture"]');
+        return document.querySelectorAll('table[role="table"] tbody[role="rowgroup"] tr[role="row"]');
     }
 
-    /** Vero quando la lista mostra la pagina attesa (o una lista qualsiasi, se n è nullo). */
-    function listaPronta(n) {
-        if (righeLista().length === 0) return false;
-        if (!n) return true;
-        var corrente = getPaginaCorrente();
-        return corrente === 0 || corrente === n;
-    }
-
-    /** Vero quando esiste una tabella con un th che contiene il testo dato. */
-    function esisteTabellaCon(testo) {
-        var tabelle = document.querySelectorAll('table');
-        for (var t = 0; t < tabelle.length; t++) {
-            var ths = tabelle[t].querySelectorAll('thead th');
-            for (var h = 0; h < ths.length; h++) {
-                if (ths[h].innerText.indexOf(testo) > -1) return true;
-            }
-        }
-        return false;
-    }
-
-    /**
-     * Vero quando il dettaglio fattura è caricato.
-     * Servono tutte e tre le condizioni: su Chrome la tabella della lista ha
-     * anch'essa un header "Imponibile", quindi da sola darebbe falsi positivi.
-     */
-    function dettaglioFatturaPronto() {
-        var panel = document.querySelector('.panel-body');
-        if (!panel || panel.querySelectorAll('strong.ng-binding').length < 2) return false;
-        if (righeLista().length > 0) return false;
-        return esisteTabellaCon('Imponibile');
-    }
-
-    function dettaglioCorrPronto() {
-        return esisteTabellaCon('Aliquota');
-    }
-
-    /** Vero quando il dettaglio espone il pulsante di download del file fattura. */
-    function pulsantiDownloadPronti() {
-        return !!trovaPulsante('Download file fattura');
-    }
-
-    /** Primo .btn-primary il cui testo contiene `testo` ed esclude `escluso`. */
-    function trovaPulsante(testo, escluso) {
-        var btns = document.getElementsByClassName('btn btn-primary');
-        for (var i = 0; i < btns.length; i++) {
-            var t = btns[i].innerText;
-            if (t.indexOf(testo) > -1 && (!escluso || t.indexOf(escluso) === -1)) return btns[i];
-        }
-        return null;
-    }
-
-    /**
-     * Cambia pagina usando lo scope Angular ($apply) oppure cliccando il link.
-     * Risolve quando la lista mostra davvero la pagina richiesta.
-     */
-    function setPage(n) {
-        var scope = getVmScope();
-        if (scope && scope.vm.setPage) {
-            scope.$apply(function () { scope.vm.setPage(n); });
-            return attendi(function () { return listaPronta(n); });
-        }
-        // Fallback: clicca il link con il numero
-        var links = document.querySelectorAll('nav[aria-label*="aginaz"] a[data-ng-click*="setPage"]');
-        for (var i = 0; i < links.length; i++) {
-            if (links[i].textContent.trim() === String(n)) {
-                links[i].click();
-                return attendi(function () { return listaPronta(n); });
-            }
-        }
-        return Promise.resolve(false);
-    }
-
-    /**
-     * Torna dalla vista di dettaglio alla lista.
-     * Unifica le due versioni che esistevano per fatture e corrispettivi:
-     * facevano la stessa cosa con l'ordine dei tentativi invertito.
-     */
-    function tornaAllaLista() {
-        var btn = document.querySelector('[data-ng-click*="backtoLista"]');
-        if (btn) {
-            btn.click();
-        } else {
-            var chevron = document.querySelector('.fa-chevron-left');
-            if (chevron && chevron.parentNode) {
-                chevron.parentNode.click();
-            } else {
-                var scope = getVmScope();
-                if (scope && scope.vm.backtoLista) scope.$apply(function () { scope.vm.backtoLista(); });
-                else history.back();
-            }
-        }
-        return attendi(function () { return listaPronta(null); });
-    }
 
     /* ═══════════════════════════════════════════════════════════════
        REGISTRO DEGLI ESITI
@@ -874,7 +884,14 @@
 
             /* Chi ha chiesto meno movimento non lo subisce */
             '@media (prefers-reduced-motion:reduce){',
-            '.fepTacca,#FEPlugin_Continua,.fepBtn,#FEPlugin_AiutoTasti{transition:none!important;}}'
+            '.fepTacca,#FEPlugin_Continua,.fepBtn,#FEPlugin_AiutoTasti{transition:none!important;}}',
+
+            /* Sul foglio stampato la barra non c'entra nulla. Vale per quel che
+               può: display in riga con !important vince su questo blocco, ed è
+               il motivo per cui esiste anche nascondiPerStampa(). */
+            '@media print{',
+            '#FEPlugin_Panel,#FEPlugin_Linguetta,#FEPlugin_DatePicker,#FEPlugin_Pannello{',
+            'display:none!important;}}'
         ].join('');
     }
 
@@ -935,6 +952,10 @@
         // L'altezza cambia quando compare il nastro o un dialogo: si osserva.
         _aggiornaPadding = function () {
             if (!_barraVisibile) return;
+            // A barra nascosta per la stampa l'altezza è zero: rimetterla ora
+            // vorrebbe dire scrivere `padding-top:0` sopra il valore che
+            // ripristinaDopoStampa() deve poter rimettere
+            if (_statoStampa) return;
             document.body.style.setProperty('padding-top', (p.offsetHeight || 34) + 'px', 'important');
         };
         _osservaAltezza = new ResizeObserver(_aggiornaPadding);
@@ -947,6 +968,8 @@
         document.getElementById('btn_datePicker').onclick    = apriPeriodoNellaBarra;
         document.getElementById('btn_stop').onclick = function () {
             _stop = true;
+            // Un dialogo aperto (anche col conto alla rovescia) risponde "annulla"
+            if (_esciDialogo) _esciDialogo();
             setStatus('Interruzione in corso, attendere la fine del documento in lavorazione.');
         };
         document.getElementById('FEPlugin_ChiudiReport').onclick = chiudiReport;
@@ -1008,6 +1031,79 @@
 
     function commutaBarra() {
         if (_barraVisibile) chiudiBarra(); else mostraBarra();
+    }
+
+    /* ─── STAMPA ────────────────────────────────────────────────────
+       Chi stampa o salva in PDF una schermata del portale sta facendo la
+       copia di un documento dell'Agenzia: la nostra barra lì non c'entra
+       nulla, e sopra la testata stampata sembra parte del portale.
+
+       Il foglio di stile ha già il suo blocco `@media print`, ma da solo non
+       basta: barra, linguetta e selettore portano `display` come stile in
+       riga con `!important`, e una regola in riga batte qualunque foglio,
+       `!important` compreso. Stesso discorso per il `padding-top` del body,
+       che senza barra visibile lascerebbe una fascia bianca in cima al
+       foglio. Quindi si tolgono e si rimettono a mano, ricordando cosa
+       c'era: la barra può essere aperta o chiusa quando parte la stampa, e
+       deve tornare com'era.
+    ─────────────────────────────────────────────────────────────── */
+
+    var ELEMENTI_STAMPA = [panelId, 'FEPlugin_Linguetta', 'FEPlugin_DatePicker'];
+    var _statoStampa = null;
+
+    function nascondiPerStampa() {
+        if (_statoStampa) return;
+
+        _statoStampa = {
+            elementi: [],
+            padding: document.body.style.getPropertyValue('padding-top'),
+            prioritaPadding: document.body.style.getPropertyPriority('padding-top')
+        };
+
+        ELEMENTI_STAMPA.forEach(function (id) {
+            var el = document.getElementById(id);
+            if (!el) return;
+            _statoStampa.elementi.push({
+                el: el,
+                display: el.style.getPropertyValue('display'),
+                priorita: el.style.getPropertyPriority('display')
+            });
+            el.style.setProperty('display', 'none', 'important');
+        });
+
+        document.body.style.removeProperty('padding-top');
+    }
+
+    function ripristinaDopoStampa() {
+        if (!_statoStampa) return;
+
+        _statoStampa.elementi.forEach(function (v) {
+            if (v.display) v.el.style.setProperty('display', v.display, v.priorita);
+            else v.el.style.removeProperty('display');
+        });
+
+        if (_statoStampa.padding) {
+            document.body.style.setProperty('padding-top', _statoStampa.padding, _statoStampa.prioritaPadding);
+        }
+
+        _statoStampa = null;
+    }
+
+    /*
+     * Chrome, Firefox ed Edge mandano beforeprint/afterprint. Safari no: lì
+     * l'unico appiglio è il media query `print`, che diventa vero per la
+     * durata della stampa. Registrare tutti e due non fa danno, perché le due
+     * funzioni sono idempotenti.
+     */
+    function osservaStampa() {
+        window.addEventListener('beforeprint', nascondiPerStampa);
+        window.addEventListener('afterprint', ripristinaDopoStampa);
+
+        if (typeof window.matchMedia !== 'function') return;
+        var mq = window.matchMedia('print');
+        var suCambio = function (e) { if (e.matches) nascondiPerStampa(); else ripristinaDopoStampa(); };
+        if (mq.addEventListener) mq.addEventListener('change', suCambio);
+        else if (mq.addListener) mq.addListener(suCambio);   // Safari meno recenti
     }
 
     /**
@@ -1258,11 +1354,18 @@
 
     var RIGA_DIALOGO = 'FEPlugin_Dialogo';
 
+    var _timerDialogo = null;
+    var _esciDialogo = null;   // risponde con l'ultima opzione, quella di uscita
+
     /**
      * Mostra una domanda con N pulsanti e risolve col valore scelto.
      * opzioni: [{ valore, etichetta, tinta }]. L'ultima è quella di uscita.
+     *
+     * scadenza, facoltativa: { secondi, valore }. Allo scadere risponde da
+     * sola con `valore`, e il pulsante di quella scelta mostra i secondi che
+     * restano, così chi guarda sa cosa succederà se non tocca nulla.
      */
-    function chiediScelta(domanda, opzioni) {
+    function chiediScelta(domanda, opzioni, scadenza) {
         return new Promise(function (resolve) {
             rimuoviDialogo();
 
@@ -1282,7 +1385,9 @@
                 rimuoviDialogo();
                 resolve(valore);
             }
+            _esciDialogo = function () { rispondi(opzioni[opzioni.length - 1].valore); };
 
+            var pulsanteScadenza = null;
             opzioni.forEach(function (o, i) {
                 var b = document.createElement('button');
                 b.className = 'fepBtn ' + (o.tinta || 'fep-azione');
@@ -1290,7 +1395,21 @@
                 b.onclick = function () { rispondi(o.valore); };
                 riga.appendChild(b);
                 if (i === 0) setTimeout(function () { b.focus(); }, 0);
+                if (scadenza && o.valore === scadenza.valore) pulsanteScadenza = { el: b, etichetta: o.etichetta };
             });
+
+            if (scadenza && scadenza.secondi > 0) {
+                var restano = scadenza.secondi;
+                var mostra = function () {
+                    if (pulsanteScadenza) pulsanteScadenza.el.textContent = pulsanteScadenza.etichetta + ' (' + restano + ')';
+                };
+                mostra();
+                _timerDialogo = setInterval(function () {
+                    restano--;
+                    if (restano <= 0) { rispondi(scadenza.valore); return; }
+                    mostra();
+                }, 1000);
+            }
 
             riga.addEventListener('keydown', function (e) {
                 if (e.key === 'Escape') rispondi(opzioni[opzioni.length - 1].valore);
@@ -1301,6 +1420,8 @@
     }
 
     function rimuoviDialogo() {
+        if (_timerDialogo) { clearInterval(_timerDialogo); _timerDialogo = null; }
+        _esciDialogo = null;
         var vecchio = document.getElementById(RIGA_DIALOGO);
         if (vecchio) vecchio.remove();
     }
@@ -1582,7 +1703,7 @@
             return;
         }
 
-        var p = calcolaPeriodo(anno, codice, new Date());
+        var p = calcolaPeriodo(anno, codice, ultimoGiornoAccettato());
         if (!p) { avvisa('Periodo non valido.'); return; }
         applicaPeriodoAlForm(p.dal, p.al).then(function (ok) {
             if (!ok) avvisa('Non sono riuscito ad avviare la ricerca: campi data non trovati.');
@@ -1659,63 +1780,6 @@
         concludiReport(null);     // si chiude da sé, come ogni messaggio di passaggio
     }
 
-
-    /* ═══════════════════════════════════════════════════════════════
-       HELPER: RILEVAMENTO DINAMICO COLONNE LISTA FATTURE
-       Chrome/Edge hanno struttura DOM diversa da Firefox
-       (colonne Angular template assenti → indici shiftati).
-    ═══════════════════════════════════════════════════════════════ */
-
-    var _colonneListaCache = null;
-
-    function mappaColonneLista() {
-        if (_colonneListaCache) return _colonneListaCache;
-
-        var firstRow = document.querySelector('tr[data-ng-repeat*="vm.items"], tr[data-ng-repeat*="fatture"]');
-        if (!firstRow) return null;
-        var table = firstRow;
-        while (table && table.tagName !== 'TABLE') table = table.parentElement;
-        if (!table) return null;
-
-        var ths = table.querySelectorAll('thead th');
-        if (!ths || ths.length === 0) return null;
-
-        var map = {};
-        log('Colonne tabella lista (' + ths.length + '):');
-        for (var i = 0; i < ths.length; i++) {
-            var txt = ths[i].innerText.replace(/\s+/g, ' ').trim().toLowerCase();
-            log('  [' + i + '] = "' + txt + '"');
-
-            if (!map.tipoDoc && (txt.indexOf('tipo doc') > -1 || txt.indexOf('tipo fatt') > -1))
-                map.tipoDoc = i;
-            else if (map.numero === undefined && (txt === 'numero' || txt === 'n.' || txt.indexOf('numero') > -1))
-                map.numero = i;
-            else if (map.data === undefined && txt.indexOf('data') > -1 &&
-                     txt.indexOf('registr') === -1 && txt.indexOf('conseg') === -1 &&
-                     txt.indexOf('presa') === -1 && txt.indexOf('invio') === -1)
-                map.data = i;
-            else if (map.cfNome === undefined && (
-                     txt.indexOf('cedente') > -1 || txt.indexOf('cessionario') > -1 ||
-                     txt.indexOf('denominazione') > -1 || txt.indexOf('ragione') > -1 ||
-                     txt.indexOf('prestatore') > -1 || txt.indexOf('committente') > -1))
-                map.cfNome = i;
-            else if (map.idSdi === undefined && (txt.indexOf('identificativo') > -1 || txt.indexOf('id s') > -1))
-                map.idSdi = i;
-            else if (map.bollo === undefined && txt.indexOf('bollo') > -1)
-                map.bollo = i;
-        }
-
-        log('Mappa colonne rilevata: ' + JSON.stringify(map));
-
-        if (map.numero !== undefined && map.data !== undefined) {
-            _colonneListaCache = map;
-            return map;
-        }
-        log('WARN: mappa colonne incompleta, fallback a ricerca per contenuto');
-        return null;
-    }
-
-    function resetMappaColonne() { _colonneListaCache = null; }
 
     /* ═══════════════════════════════════════════════════════════════
        CALCOLO DEI PERIODI
@@ -1817,14 +1881,6 @@
             }
             if (v && v.length >= 5 && v !== 'undefined') return v;
         }
-        try {
-            var scope = getVmScope();
-            if (scope && scope.vm) {
-                var piva = scope.vm.piva || scope.vm.pivaUtente ||
-                           (scope.vm.user ? scope.vm.user.piva : '') || '';
-                if (piva && piva.length >= 5) return piva.trim();
-            }
-        } catch (e) {}
         var cands = document.querySelectorAll('select[name*="piva"], input[name*="piva"], select[id*="piva"], input[id*="piva"]');
         for (var i = 0; i < cands.length; i++) {
             var cv = (cands[i].value || '').trim();
@@ -1833,18 +1889,21 @@
         return '';
     }
 
+    /**
+     * Etichetta di periodo per i nomi dei file esportati. I campi #dal/#al
+     * erano testo "dd/mm/yyyy" sul vecchio portale, sono <input type="date">
+     * (valore ISO "yyyy-mm-dd") sul nuovo: si riconosce il formato dal
+     * separatore e si converte di conseguenza.
+     */
     function rilevaPeriodo() {
         var dalEl = document.getElementById('dal');
         var alEl  = document.getElementById('al');
         var dal = dalEl ? (dalEl.value || '').trim() : '';
         var al  = alEl  ? (alEl.value  || '').trim() : '';
-        if (dal && al) {
-            var d = dal.replace(/\//g, '');
-            var a = al.replace(/\//g, '');
-            if (d.length === 8) d = d.substring(0, 4) + d.substring(6);
-            if (a.length === 8) a = a.substring(0, 4) + a.substring(6);
-            return d + '-' + a;
-        }
+        if (!dal || !al) return '';
+        var d = dal.indexOf('-') > -1 ? isoAggMmYyyy(dal) : dataItADdMmYyyy(dal);
+        var a = al.indexOf('-') > -1 ? isoAggMmYyyy(al) : dataItADdMmYyyy(al);
+        if (d.length === 8 && a.length === 8) return d + '-' + a;
         return '';
     }
 
@@ -1872,8 +1931,25 @@
     }
 
     function sezioneFattureAperta() {
-        var hash = window.location.hash;
-        return hash.indexOf('/fatture/') > -1 || hash.indexOf('/transfrontaliere/') > -1;
+        var path = window.location.pathname;
+        return path.indexOf('/fatture/') > -1 || path.indexOf('/transfrontaliere/') > -1;
+    }
+
+    /**
+     * Legge il periodo attualmente impostato nei campi nativi #dal/#al del
+     * portale (formato ISO, essendo <input type="date">) e lo converte in
+     * ddMMyyyy per le chiamate API. null se i campi sono assenti o vuoti.
+     */
+    function leggiPeriodoCorrente() {
+        var dalEl = document.getElementById('dal');
+        var alEl  = document.getElementById('al');
+        var dal = dalEl ? (dalEl.value || '').trim() : '';
+        var al  = alEl  ? (alEl.value  || '').trim() : '';
+        if (!dal || !al) return null;
+        var d = isoAggMmYyyy(dal);
+        var a = isoAggMmYyyy(al);
+        if (d.length !== 8 || a.length !== 8) return null;
+        return { dal: d, al: a };
     }
 
     function avviaDownloadFatture() {
@@ -1883,16 +1959,23 @@
         }
         if (_inCorso) return;
 
+        var periodo = leggiPeriodoCorrente();
+        if (!periodo) { avvisa('Imposta le date "Dal" e "Al" nel modulo di ricerca del portale.'); return; }
+        var sezione = window.location.pathname.indexOf('/emesse') > -1 ? 'emesse' : 'ricevute';
+
         setRunning(true, 'Scarico le fatture');
-        resetMappaColonne();
         setProgress(0, 'Raccolta della lista.');
 
         var esiti = null;
 
         chiediOpzioniScarico()
             .then(function (procedi) {
-                if (!procedi) { setStatus('Annullato.'); return null; }
-                return setPage(1).then(function () { return raccogliVociLista(20); });
+                if (!procedi) return null;
+                return chiediAmbitoScarico();
+            })
+            .then(function (ambito) {
+                if (!ambito) { setStatus('Annullato.'); return null; }
+                return raccogliVociPerScarico(periodo.dal, periodo.al, sezione, ambito);
             })
             .then(function (voci) {
                 if (!voci || _stop) return null;
@@ -1904,7 +1987,7 @@
                 if (voci.length === 0) { setStatus('Tutte le fatture del periodo risultano già scaricate.'); return null; }
                 esiti = creaRegistroEsiti(voci.length);
                 nastro.prepara(voci.length);
-                return scaricaFatture(voci, esiti, 20, 80);
+                return scaricaFattureApi(voci, esiti, 20, 80);
             })
             .then(function () {
                 if (esiti) mostraResoconto(esiti, 'fatture scaricate');
@@ -1943,11 +2026,13 @@
             return Promise.resolve();
         }
 
+        var sezione = window.location.pathname.indexOf('/emesse') > -1 ? 'emesse' : 'ricevute';
+
         setRunning(true, 'Scarico l\'anno ' + anno);
-        resetMappaColonne();
 
         var esiti = creaRegistroEsiti(0);
         var saltatiPerScelta = false;
+        var ambito = 'fe';
 
         function passoTrimestre(i) {
             if (_stop || i >= chunk.length) return Promise.resolve();
@@ -1955,20 +2040,14 @@
             var t = chunk[i];
             var quota = 100 / chunk.length;
             var base = quota * i;
+            var dal = dataItADdMmYyyy(t.dal);
+            var al  = dataItADdMmYyyy(t.al);
 
             setProgress(base, t.etichetta + ' (' + (i + 1) + '/' + chunk.length + ')   ' +
                               t.dal + ' - ' + t.al + '   ricerca in corso');
             nastro.azzera();
 
-            return applicaPeriodoAlForm(t.dal, t.al)
-                .then(function (cercato) {
-                    if (!cercato) {
-                        log('Trimestre ' + t.etichetta + ': ricerca non avviata, salto.');
-                        return null;
-                    }
-                    resetMappaColonne();
-                    return setPage(1).then(function () { return raccogliVociLista(base + quota * 0.2); });
-                })
+            return raccogliVociPerScarico(dal, al, sezione, ambito)
                 .then(function (voci) {
                     if (!voci || _stop) return null;
                     if (voci.length === 0) {
@@ -1983,13 +2062,19 @@
 
                     esiti.totale += mancanti.length;
                     nastro.prepara(mancanti.length);
-                    return scaricaFatture(mancanti, esiti, base + quota * 0.2, quota * 0.8, t.etichetta);
+                    return scaricaFattureApi(mancanti, esiti, base + quota * 0.2, quota * 0.8, t.etichetta);
                 })
                 .then(function () { return passoTrimestre(i + 1); });
         }
 
-        return passoTrimestre(0)
-            .then(function () {
+        return chiediAmbitoScarico()
+            .then(function (scelto) {
+                if (!scelto) { setStatus('Annullato.'); return 'annullato'; }
+                ambito = scelto;
+                return passoTrimestre(0);
+            })
+            .then(function (esito) {
+                if (esito === 'annullato') return;
                 mostraResoconto(esiti, 'fatture scaricate nel ' + anno);
                 if (saltatiPerScelta) {
                     log('Le fatture già presenti nel registro sono state saltate.');
@@ -2002,30 +2087,40 @@
             .then(function () { setRunning(false); });
     }
 
+    /** Primo `<button class="btn btn-primary">` il cui testo è esattamente `testo`. */
+    function trovaPulsanteTesto(testo) {
+        var btns = document.querySelectorAll('button.btn.btn-primary');
+        for (var i = 0; i < btns.length; i++) {
+            if (btns[i].textContent.trim() === testo) return btns[i];
+        }
+        return null;
+    }
+
     /**
      * Scrive le due date nel form del portale e avvia la ricerca.
      * Risolve true se la lista si è ricaricata, false se non è stato possibile.
+     * `dal`/`al` arrivano in formato "dd/mm/yyyy": i campi sono <input type="date">
+     * nativi, che accettano solo valore ISO "yyyy-mm-dd" (un formato diverso
+     * viene ignorato in silenzio, il campo resta vuoto).
      */
     function applicaPeriodoAlForm(dal, al) {
         var Dal = document.getElementById('dal');
         var Al  = document.getElementById('al');
         if (!Dal || !Al) return Promise.resolve(false);
 
-        var cerca = document.querySelector('.btn.btn-primary.ng-binding');
+        var cerca = trovaPulsanteTesto('Cerca');
+        var dalIso = dataItAIso(dal);
+        var alIso  = dataItAIso(al);
 
-        // I campi vanno scritti in sequenza: la direttiva del portale rivaluta
-        // il secondo sulla base del primo, e scriverli insieme perde la validazione
-        Dal.value = dal;
-        Dal.dispatchEvent(new Event('change'));
+        scriviCampoReact(Dal, dalIso);
 
         return pausa(220).then(function () {
-            Al.value = al;
-            Al.dispatchEvent(new Event('change'));
+            scriviCampoReact(Al, alIso);
             return pausa(220);
         }).then(function () {
             if (!cerca) return false;
             cerca.click();
-            return attendi(function () { return listaPronta(null); }, 15000);
+            return attendi(function () { return righeLista().length > 0; }, 15000);
         });
     }
 
@@ -2069,64 +2164,64 @@
     }
 
     /**
-     * Dice se uno stato è un rifiuto della PA.
-     *
-     * Il portale espone due stati diversi e non vanno confusi: lo stato
-     * SdI/file riguarda la trasmissione (Consegnata, Non consegnata,
-     * Scartata) e lo Stato riguarda la risposta del destinatario pubblico
-     * (Emessa, Accettata, Rifiutata, Decorrenza termini).
-     *
-     * Rifiutata è l'unico esito che esclude il documento. "Emessa" significa
-     * che la PA non ha ancora risposto, non che abbia detto di no.
+     * Dice se uno stato è un rifiuto della PA. Rifiutata è l'unico esito
+     * che esclude il documento dallo scarico: "Emessa" significa che la PA
+     * non ha ancora risposto, non che abbia detto di no.
      */
     function eRifiutata(statoPA) {
         return /rifiut/i.test(String(statoPA || ''));
     }
 
     /**
-     * Legge lo Stato della PA dal dettaglio aperto.
-     *
-     * Il portale monta due paragrafi "Stato:", uno per le fatture rettificate
-     * e uno per le altre, e nasconde quello che non serve con la classe
-     * ng-hide. Prendere il primo che capita darebbe il valore sbagliato.
+     * Sulle pagine delle transfrontaliere chiede cosa scaricare: le sole
+     * transfrontaliere o tutte le fatture della stessa direzione. Senza
+     * risposta entro dieci secondi vale la prima, perché è quella coerente
+     * con la pagina in cui ci si trova. Fuori da quelle pagine non chiede
+     * nulla. Risolve 'ft', 'tutte', 'fe' oppure null se l'utente annulla.
      */
-    function leggiStatoPA() {
-        var paragrafi = document.querySelectorAll('.panel-body p');
-        for (var i = 0; i < paragrafi.length; i++) {
-            var p = paragrafi[i];
-            if (p.className.indexOf('ng-hide') > -1) continue;
-            if (p.innerText.indexOf('Stato:') === -1) continue;
-            var forte = p.querySelector('strong');
-            if (forte) return forte.innerText.trim();
-        }
-        return '';
+    function chiediAmbitoScarico() {
+        if (window.location.pathname.indexOf('/transfrontaliere/') === -1) return Promise.resolve('fe');
+        var dir = window.location.pathname.indexOf('/ricevute') > -1 ? 'ricevute' : 'emesse';
+        return chiediScelta('Sei nelle transfrontaliere ' + dir + '. Cosa scarico?', [
+            { valore: 'ft',      etichetta: 'Solo transfrontaliere', tinta: 'fep-primario'    },
+            { valore: 'tutte',   etichetta: 'Tutte le ' + dir,       tinta: 'fep-alternativa' },
+            { valore: 'annulla', etichetta: 'Annulla',               tinta: 'fep-quieto'      }
+        ], { secondi: 10, valore: 'ft' }).then(function (s) {
+            return s === 'annulla' || !s ? null : s;
+        });
     }
 
-    /** Legge identificativo, stato di trasmissione e stato PA dal dettaglio. */
-    function leggiStatoFattura() {
-        var idSdi = '', statoSdi = '';
-        var pb = document.querySelector('.panel-body');
-        if (pb && pb.children[0]) {
-            var strongs = pb.children[0].querySelectorAll('strong.ng-binding');
-            idSdi    = strongs[0] ? strongs[0].innerText.trim() : '';
-            statoSdi = strongs[1] ? strongs[1].innerText.trim() : '';
-        }
+    /**
+     * Unisce l'elenco delle fatture elettroniche (fe) e quello delle
+     * transfrontaliere (ft), togliendo i doppioni. Una transfrontaliera
+     * transitata dallo SdI compare in entrambi: si tiene la voce fe, da cui
+     * il download è verificato. Con soloFt restituisce le sole
+     * transfrontaliere, sostituite dalla voce fe quando esiste.
+     */
+    function unisciFeFt(fe, ft, soloFt) {
+        var perChiave = {};
+        fe.forEach(function (v) { perChiave[chiaveDocumento(v)] = v; });
+        var visti = {};
+        var ftRisolte = [];
+        ft.forEach(function (v) {
+            var k = chiaveDocumento(v);
+            if (visti[k]) return;
+            visti[k] = true;
+            ftRisolte.push(perChiave[k] || v);
+        });
+        if (soloFt) return ftRisolte;
+        return fe.concat(ftRisolte.filter(function (v) { return !perChiave[chiaveDocumento(v)]; }));
+    }
 
-        var statoPA = leggiStatoPA();
-        // Se il paragrafo non c'è si ripiega sul testo della pagina, com'era prima
-        var rifiutata = statoPA ? eRifiutata(statoPA)
-                                : /rifiutata/i.test(document.body.innerText);
-
-        // Codifica storica dello stato, mantenuta per compatibilità col registro
-        var codice = 1;
-        if (rifiutata) codice = -2;
-        else if (statoSdi.indexOf('accettata') > -1) codice = 3;
-        else if (statoSdi.toLowerCase().indexOf('decorrenza') > -1) codice = -3;
-        else if (statoSdi === 'Non consegnata') codice = -1;
-        else if (document.body.innerText.indexOf('in attesa') > -1) codice = 2;
-
-        return { idSdi: idSdi, statoSdi: statoSdi, statoPA: statoPA,
-                 rifiutata: rifiutata, codice: codice };
+    /** Raccolta per lo scarico secondo l'ambito scelto: 'fe', 'ft' o 'tutte'. */
+    function raccogliVociPerScarico(dal, al, sezione, ambito) {
+        if (ambito !== 'ft' && ambito !== 'tutte') return raccogliVociFattureApi(dal, al, sezione);
+        return raccogliVociFattureApi(dal, al, sezione).then(function (fe) {
+            if (_stop) return fe;
+            return raccogliVociTransfrontaliereApi(dal, al, sezione).then(function (ft) {
+                return unisciFeFt(fe, ft, ambito === 'ft');
+            });
+        });
     }
 
     /**
@@ -2134,9 +2229,8 @@
      * ogni documento, non a fine ciclo: se il browser si chiude a metà di un
      * lavoro lungo, quello che è stato fatto resta fatto.
      */
-    function scaricaFatture(voci, esiti, pctBase, pctQuota, prefisso) {
+    function scaricaFattureApi(voci, esiti, pctBase, pctQuota, prefisso) {
         var registro = deposito.leggi('registro', {});
-        var periodo = rilevaPeriodo();
         pctBase = pctBase || 0;
         pctQuota = pctQuota || 100;
 
@@ -2150,14 +2244,6 @@
             var chiave;
             try { chiave = chiaveDocumento(voce); } catch (e) { chiave = 'indice ' + i; }
 
-            /*
-             * Il nastro colora le tacche per posizione: ogni voce di voci deve
-             * produrre esattamente un'annotazione, mai zero mai due, altrimenti
-             * tutte le tacche successive scalano di una posizione e mostrano
-             * l'esito del documento sbagliato. Il flag garantisce l'unicità
-             * anche quando più rami di errore potrebbero scattare in sequenza,
-             * ed è definito prima di ogni codice rischioso qui sotto.
-             */
             var annotato = false;
             function annotaUnaVolta(esito, motivo) {
                 if (annotato) return;
@@ -2165,78 +2251,44 @@
                 esiti.annota(chiave, esito, motivo);
             }
 
-            try {
-                var etichetta = (prefisso ? prefisso + '   ' : '') + voce.numero;
-                aggiornaBarra(esiti, i, voci.length, etichetta, pctBase + (i / voci.length * pctQuota));
-                window.location.hash = voce.hash;
-            } catch (e) {
-                annotaUnaVolta(ESITO.ERRORE, String(e));
+            var etichetta = (prefisso ? prefisso + '   ' : '') + voce.numero;
+            aggiornaBarra(esiti, i, voci.length, etichetta, pctBase + (i / voci.length * pctQuota));
+
+            if (eRifiutata(voce.stato) && !opzioni.scaricaRifiutate) {
+                annotaUnaVolta(ESITO.SALTATO, 'rifiutata dalla PA');
                 return passo(i + 1);
             }
 
-            /*
-             * Nel registro finisce solo ciò che non ha senso rifare: il documento
-             * scaricato e quello rifiutato, che un file da scaricare non ce l'ha.
-             * Gli errori restano fuori, così la ripresa li riprova.
-             */
-            function ricorda(codice) {
-                registro[chiave] = { stato: codice, quando: Date.now(), periodo: periodo };
-                deposito.scrivi('registro', registro);
+            if (!voce.scaricabile) {
+                annotaUnaVolta(ESITO.SALTATO, 'file non disponibile per il download');
+                return passo(i + 1);
             }
 
-            return attendi(pulsantiDownloadPronti, 8000).then(function (pronto) {
-                if (!pronto) {
-                    annotaUnaVolta(ESITO.ERRORE, 'dettaglio non caricato');
-                    return;
-                }
+            return scaricaFileApi('/cons/cons-services/rs/fatture/file/' + voce.id + '?tipoFile=FILE_FATTURA&download=1')
+                .then(function (f) {
+                    salvaBlob(f.blob, f.nome);
+                    annotaUnaVolta(ESITO.RIUSCITO, voce.stato);
+                    registro[chiave] = { stato: voce.stato, quando: Date.now() };
+                    deposito.scrivi('registro', registro);
 
-                var stato = leggiStatoFattura();
+                    if (!opzioni.scaricaMetadati) return;
 
-                if (stato.rifiutata && !opzioni.scaricaRifiutate) {
-                    /*
-                     * Saltata per scelta, non per errore, e non finisce nel
-                     * registro: se un domani si cambia idea sull'opzione, la
-                     * ripresa deve poterla riprendere.
-                     */
-                    annotaUnaVolta(ESITO.SALTATO, 'rifiutata dalla PA');
-                    return;
-                }
-
-                var btnFile = trovaPulsante('Download file fattura', 'meta');
-                if (!btnFile) {
-                    annotaUnaVolta(ESITO.ERRORE, 'pulsante di download assente');
-                    return;
-                }
-
-                btnFile.click();
-                annotaUnaVolta(ESITO.RIUSCITO, stato.statoPA || stato.statoSdi);
-                ricorda(stato.codice);
-
-                if (!opzioni.scaricaMetadati) return;
-
-                // Il browser vuole un istante fra due download consecutivi
-                return pausa(350).then(function () {
-                    var btnMeta = trovaPulsante('meta');
-                    if (btnMeta) btnMeta.click();
+                    // Il browser vuole un istante fra due download consecutivi
+                    return pausa(350).then(function () {
+                        return scaricaFileApi('/cons/cons-services/rs/fatture/file/' + voce.id + '?tipoFile=FILE_METADATI&download=1')
+                            .then(function (m) { salvaBlob(m.blob, m.nome); })
+                            .catch(function (e) { log('Metadati non scaricati per ' + chiave + ': ' + e); });
+                    });
+                })
+                .catch(function (e) {
+                    annotaUnaVolta(ESITO.ERRORE, String(e));
+                })
+                .then(function () {
+                    // Il browser blocca i download multipli troppo ravvicinati
+                    // (vedi la stessa nota su generaExcelCorrispettivi): un
+                    // istante fra un documento e l'altro evita di perderli.
+                    return pausa(250).then(function () { return passo(i + 1); });
                 });
-            }).catch(function (e) {
-                annotaUnaVolta(ESITO.ERRORE, String(e));
-            }).then(function () {
-                /*
-                 * Se il ritorno alla lista fallisce non deve abbattere il resto
-                 * del lotto: l'esito del documento è già registrato sopra, qui
-                 * si prosegue comunque al successivo.
-                 */
-                return tornaAllaLista().catch(function (e) {
-                    log('Ritorno alla lista fallito dopo ' + chiave + ': ' + e);
-                });
-            }).catch(function (e) {
-                // Rete di sicurezza finale: qualunque cosa sfugga da qui in poi,
-                // il documento risulta comunque annotato e il lotto continua.
-                annotaUnaVolta(ESITO.ERRORE, String(e));
-            }).then(function () {
-                return passo(i + 1);
-            });
         }
 
         return passo(0);
@@ -2281,139 +2333,122 @@
     /* ═══════════════════════════════════════════════════════════════
        RACCOLTA DELLA LISTA FATTURE
 
-       Il portale pagina lato server a 50 record fissi e non c'è modo di
-       aggirarlo: nella 0.94 si provò a forzare pager.pageSize, ma il server
-       continuava a restituirne 50 e l'export si fermava lì, in silenzio.
-       L'unica strada è scorrere le pagine davvero.
-
-       Struttura lista fatture:
-         [0]=checkbox [1]=TipoDoc [2]=Nr.Fattura [3]=DataFattura
-         [4]=CF/PIVA+Nome [5]=Imponibile [6]=IVA [7]=N.registrazioni
-         [8]=ID SDI [9]=Stato [10]=DataConsegna [12]=DataPresaVisione
-       Gli indici però cambiano fra browser: vedi mappaColonneLista().
+       Dal rifacimento React (settembre 2026) l'id della fattura non è più
+       leggibile dal DOM: si raccoglie l'elenco chiamando direttamente
+       /cons/cons-services/rs/fe/emesse|ricevute, che restituisce già tutto
+       il periodo in una sola risposta JSON (nessuna paginazione lato
+       client da gestire: quella dei 50 record fissi era un limite della
+       vista, non dell'API).
     ═══════════════════════════════════════════════════════════════ */
 
-    /** Legge le voci della lista fatture presenti in questo momento nel DOM. */
-    function leggiRigheLista(voci) {
-        var colMap = mappaColonneLista();
-
-        righeLista().forEach(function (r) {
-            var linkEl = r.querySelector('a[href*="/fatture/dettaglio/"]');
-            if (!linkEl) return;
-            var href = linkEl.getAttribute('href') || '';
-            if (!href) return;
-            // Angular monta più copie della stessa ng-repeat: dedupica per href
-            for (var i = 0; i < voci.length; i++) { if (voci[i].hash === href) return; }
-
-            var tipoDoc, numero, data, cfNome, idSdi, bollo;
-
-            if (colMap) {
-                /* Indici ricavati dagli header: l'unica via che regge su tutti i browser */
-                tipoDoc = testoCella(r, colMap.tipoDoc);
-                numero  = testoCella(r, colMap.numero);
-                data    = testoCella(r, colMap.data);
-                cfNome  = testoCella(r, colMap.cfNome);
-                idSdi   = testoCella(r, colMap.idSdi);
-                bollo = 'No';
-                if (colMap.bollo !== undefined && r.children[colMap.bollo]) {
-                    var bChild = r.children[colMap.bollo].querySelector('[data-ng-if]');
-                    bollo = (bChild && bChild.className.indexOf('ng-hide') === -1) ? 'Sì' : 'No';
-                }
-            } else {
-                /* Ripiego: riconosce le colonne dal contenuto invece che dalla posizione */
-                tipoDoc = testoCella(r, 1);
-                numero  = testoCella(r, 2);
-                data    = testoCella(r, 3);
-                cfNome = '';
-                for (var ci = 3; ci < r.children.length; ci++) {
-                    var ct = r.children[ci].innerText.trim();
-                    if (ct.indexOf(' - ') > -1 && ct.length > 5) { cfNome = ct; break; }
-                }
-                idSdi = '';
-                for (var si = 3; si < r.children.length; si++) {
-                    var st = r.children[si].innerText.trim();
-                    if (/^\d{11,}$/.test(st)) { idSdi = st; break; }
-                }
-                bollo = 'No';
-                for (var bi = 3; bi < r.children.length; bi++) {
-                    var bc = r.children[bi].querySelector('[data-ng-if*="bollo"], [data-ng-show*="bollo"]');
-                    if (bc) { bollo = (bc.className.indexOf('ng-hide') === -1) ? 'Sì' : 'No'; break; }
-                }
-            }
-
-            if (!numero || !data) return;
-
-            // Il campo lista ha forma "PIVA PIVA - Denominazione"
-            var dashIdx = cfNome.indexOf(' - ');
-            var pivaRaw = dashIdx > -1 ? cfNome.substring(0, dashIdx).trim() : cfNome;
-            var nome    = dashIdx > -1 ? cfNome.substring(dashIdx + 3).trim() : cfNome;
-
-            voci.push({
-                hash: href, tipoDoc: tipoDoc, numero: numero,
-                data: data, nome: nome, piva: pivaRaw.split(/\s+/)[0] || '',
-                idSdi: idSdi, bollo: bollo, transfrontaliera: false
-            });
-        });
-
-        return voci;
+    /**
+     * Da una riga dell'elenco (API fe/emesse, fe/ricevute o fe/mc) alla forma
+     * usata dal resto dello script. `sezione` decide quale controparte
+     * mostrare: sulle emesse conta il Cliente, sulle ricevute il Fornitore
+     * (voi siete l'altra parte) — stessa regola già in uso nel lettore DOM
+     * che questa funzione sostituisce.
+     */
+    function normalizzaVoceFattura(j, sezione) {
+        return {
+            id: (j.tipoInvio || '') + (j.idFattura || ''),
+            idFattura: j.idFattura || '',
+            tipoInvio: j.tipoInvio || '',
+            numero: j.numeroFattura || '',
+            data: isoADataIt(j.dataFattura),
+            idSdi: (j.fileDownload && j.fileDownload.idInvio) || '',
+            tipoDoc: j.tipoDocumento || j.decodificaTipoInvio || '',
+            nome: sezione === 'emesse' ? (j.denominazioneCliente || '') : (j.denominazioneEmittente || ''),
+            piva: sezione === 'emesse' ? (j.pivaCliente || '') : (j.pivaEmittente || ''),
+            imponibile: convApiImporto(j.imponibile),
+            imposta: convApiImporto(j.imposta),
+            stato: j.stato || '',
+            scaricabile: !!(j.fileDownload && j.fileDownload.fileDownload) && !(j.fileDownload && j.fileDownload.revocaDownload),
+            transfrontaliera: false
+        };
     }
 
-    function testoCella(riga, indice) {
-        if (indice === undefined || !riga.children[indice]) return '';
-        return riga.children[indice].innerText.trim();
+    /** 'emesse'|'ricevute' → la stessa direzione, per scegliere l'endpoint ft/{dir}. Ignoto → emesse. */
+    function direzioneTransfrontaliera(sezione) {
+        return sezione === 'ricevute' ? 'ricevute' : 'emesse';
     }
 
     /**
-     * Legge le righe di una lista transfrontaliere (esterometro).
-     * Queste non hanno un dettaglio navigabile: imponibile e imposta stanno
-     * già nella lista.
+     * Avvisi da mostrare in log da una risposta di elenco fatture: un
+     * troncamento per limite di blocco, o messaggi del portale con
+     * severità diversa da INFO (es. periodo senza risultati non è un
+     * avviso, un errore di validazione sì).
      */
-    function leggiRigheTransfrontaliere(voci) {
-        document.querySelectorAll('tr[data-ng-repeat*="vm.items"]').forEach(function (r) {
-            var numero = testoCella(r, 2);
-            if (!numero) return;
-            voci.push({
-                hash: null,
-                tipoDoc: testoCella(r, 1) + ' (transfrontaliera)',
-                numero: numero,
-                data: testoCella(r, 3),
-                nome: testoCella(r, 4),      // paese
-                piva: '', idSdi: '',
-                transfrontaliera: true,
-                impTrans: convN(testoCella(r, 5)),
-                ivaTrans: convN(testoCella(r, 6))
-            });
-        });
-        return voci;
-    }
-
-    /**
-     * Scorre tutte le pagine della lista corrente e restituisce le voci.
-     * `peso` è la quota di barra di avanzamento assegnata a questa fase.
-     */
-    function raccogliVociLista(peso, transfrontaliere) {
-        var voci = [];
-        var totPagine = getTotalPages();
-        var leggi = transfrontaliere ? leggiRigheTransfrontaliere : leggiRigheLista;
-
-        function passo(pagina) {
-            if (_stop) return Promise.resolve(voci);
-
-            leggi(voci);
-            setProgress(pagina / totPagine * peso,
-                        'Lista pagina ' + pagina + '/' + totPagine + '   ' + voci.length + ' documenti');
-
-            if (pagina >= totPagine) return Promise.resolve(voci);
-            return setPage(pagina + 1).then(function (ok) {
-                if (!ok) {
-                    log('Pagina ' + (pagina + 1) + ' non caricata entro il limite: raccolta interrotta.');
-                    return voci;
-                }
-                return passo(pagina + 1);
-            });
+    function avvisiElenco(j) {
+        var avvisi = [];
+        var totale = parseInt(j.totaleFatture, 10);
+        var arrivate = (j.fatture || []).length;
+        if (!isNaN(totale) && totale > arrivate) {
+            avvisi.push('Il portale segnala ' + totale + ' documenti nel periodo, arrivati solo ' +
+                        arrivate + ' (limite di blocco raggiunto?).');
         }
+        (j.messages || []).forEach(function (m) {
+            if (m && m.severity && m.severity !== 'INFO' && m.message) avvisi.push(m.message);
+        });
+        return avvisi;
+    }
 
-        return passo(1);
+    /**
+     * Dal dettaglio di una fattura (API fatture/dettaglio/{id}) alla forma
+     * { idSdi, nome, piva, bollo, aliquote: [{aliquota, imponibile, imposta, natura}] }.
+     * Le righe con imponibile, imposta, aliquota e natura tutti vuoti sono
+     * scartate: erano le righe spurie che il lettore DOM filtrava a mano.
+     */
+    function normalizzaDettaglioFattura(j, sezione) {
+        var aliquote = (j.importi || []).map(function (r) {
+            return {
+                aliquota: r.aliquota || '',
+                imponibile: convApiImporto(r.imponibile),
+                imposta: convApiImporto(r.imposta),
+                natura: r.natura || ''
+            };
+        }).filter(function (r) {
+            return r.imponibile !== 0 || r.imposta !== 0 || r.aliquota || r.natura;
+        });
+
+        return {
+            idSdi: j.idInvio || '',
+            nome: sezione === 'emesse' ? (j.denominazioneCliente || '') : (j.denominazioneEmittente || ''),
+            piva: sezione === 'emesse' ? (j.pivaCliente || '') : (j.pivaEmittente || ''),
+            bollo: j.bolloVirtuale ? 'Sì' : 'No',
+            aliquote: aliquote
+        };
+    }
+
+    /** Elenco delle fatture emesse o ricevute nel periodo dato (entrambe le date in formato ddMMyyyy). */
+    function raccogliVociFattureApi(dal, al, sezione) {
+        var percorso = sezione === 'emesse'
+            ? '/cons/cons-services/rs/fe/emesse/dal/' + dal + '/al/' + al
+            : '/cons/cons-services/rs/fe/ricevute/dal/' + dal + '/al/' + al + '/ricerca/ricezione';
+
+        return chiamataApi(percorso).then(function (j) {
+            avvisiElenco(j).forEach(function (a) { log(a); });
+            return (j.fatture || []).map(function (r) { return normalizzaVoceFattura(r, sezione); });
+        });
+    }
+
+    /**
+     * Elenco delle fatture transfrontaliere (esterometro) nel periodo dato.
+     * Endpoint verificato contro la cattura del 22/9/2026: il Referer delle
+     * chiamate REST da /cons-web/transfrontaliere/emesse e .../ricevute è
+     * rispettivamente rs/ft/emesse e rs/ft/ricevute — famiglia di endpoint
+     * diversa da rs/fe/mc (quella è "Le tue FE passive messe a disposizione",
+     * una sezione diversa del portale, sotto Fatture non Transfrontaliere).
+     */
+    function raccogliVociTransfrontaliereApi(dal, al, sezione) {
+        var dir = direzioneTransfrontaliera(sezione);
+        return chiamataApi('/cons/cons-services/rs/ft/' + dir + '/dal/' + dal + '/al/' + al).then(function (j) {
+            avvisiElenco(j).forEach(function (a) { log(a); });
+            return (j.fatture || []).map(function (r) {
+                var v = normalizzaVoceFattura(r, dir);
+                v.transfrontaliera = true;
+                return v;
+            });
+        });
     }
 
     /* ═══════════════════════════════════════════════════════════════
@@ -2421,47 +2456,54 @@
     ═══════════════════════════════════════════════════════════════ */
 
     function avviaExportFatture() {
-        var hash = window.location.hash;
-        var suTransfrontaliere = hash.indexOf('/transfrontaliere/') > -1;
-        if (hash.indexOf('/fatture/') === -1 && !suTransfrontaliere) {
+        if (!sezioneFattureAperta()) {
             avvisa('Apri prima la sezione "Fatture emesse" o "Fatture ricevute".');
             return;
         }
         if (_inCorso) return;
 
-        setRunning(true, 'Preparo il foglio delle fatture');
-        resetMappaColonne();
-        setProgress(0, 'Raccolta della lista.');
+        var path = window.location.pathname;
+        var suTransfrontaliere = path.indexOf('/transfrontaliere/') > -1;
+        var suEmesse = path.indexOf('/emesse') > -1;
+        var sezione = suEmesse ? 'emesse' : 'ricevute';
 
-        var suEmesse = hash.indexOf('/emesse') > -1;
+        var periodo = leggiPeriodoCorrente();
+        if (!periodo) { avvisa('Imposta le date "Dal" e "Al" nel modulo di ricerca del portale.'); return; }
+
+        setRunning(true, 'Preparo il foglio delle fatture');
+        setProgress(0, 'Raccolta della lista.');
 
         chiediTransfrontaliere(suTransfrontaliere, suEmesse)
             .then(function (includi) {
                 if (includi === null) { setStatus('Annullato.'); return null; }
 
                 if (suTransfrontaliere) {
-                    // Già dentro la sezione: le righe si leggono direttamente dalla lista
-                    return raccogliVociLista(95, true).then(function (voci) {
-                        return voci.map(rigaDaTransfrontaliera);
+                    return raccogliVociTransfrontaliereApi(periodo.dal, periodo.al, sezione).then(function (voci) {
+                        if (_stop) return [];
+                        if (!voci.length) return null;
+                        setStatus(voci.length + ' fatture. Lettura dei dettagli IVA…');
+                        return analizzaDettagliFattureApi(voci, sezione);
                     });
                 }
 
-                return raccogliVociLista(12, false)
+                return raccogliVociFattureApi(periodo.dal, periodo.al, sezione)
                     .then(function (voci) {
                         if (!includi || _stop) return voci;
-                        return aggiungiTransfrontaliere(voci);
+                        return raccogliVociTransfrontaliereApi(periodo.dal, periodo.al, sezione).then(function (trans) {
+                            return unisciFeFt(voci, trans, false);
+                        });
                     })
                     .then(function (voci) {
                         if (_stop || voci.length === 0) return voci.length === 0 ? null : [];
                         setStatus(voci.length + ' fatture. Lettura dei dettagli IVA…');
-                        return analizzaDettagliFatture(voci);
+                        return analizzaDettagliFattureApi(voci, sezione);
                     });
             })
             .then(function (righe) {
                 if (righe === null) { setStatus('Nessuna fattura trovata nel periodo.'); return; }
                 if (_stop || !righe.length) return;
                 setProgress(98, 'Generazione del foglio…');
-                return pausa(150).then(function () { generaExcelFatture(righe); });
+                return pausa(150).then(function () { generaExcelFatture(righe, sezione, suTransfrontaliere); });
             })
             .catch(function (e) {
                 log('Export interrotto da un errore: ' + e);
@@ -2483,31 +2525,17 @@
         });
     }
 
-    /** Naviga alla sezione transfrontaliere, raccoglie, e torna alle emesse. */
-    function aggiungiTransfrontaliere(voci) {
-        var linkTrans = document.querySelector('a[href="#/transfrontaliere/emesse"]');
-        if (!linkTrans) { log('Sezione transfrontaliere non raggiungibile dal menu.'); return Promise.resolve(voci); }
-
-        setStatus('Raccolta delle fatture transfrontaliere…');
-        linkTrans.click();
-
-        return attendi(function () { return listaPronta(null); })
-            .then(function (ok) {
-                if (ok) leggiRigheTransfrontaliere(voci);
-                var linkEmesse = document.querySelector('a[href="#/fatture/emesse"]');
-                if (linkEmesse) linkEmesse.click();
-                return attendi(function () { return listaPronta(null); });
-            })
-            .then(function () { return voci; });
-    }
-
-    /** Una transfrontaliera diventa direttamente una riga: non ha dettaglio da aprire. */
+    /**
+     * Una transfrontaliera di cui non si legge il dettaglio: i totali
+     * dell'elenco finiscono in una colonna "Non ripartito". Con natura e
+     * aliquota vuote il pivot scartava la riga e l'imponibile spariva.
+     */
     function rigaDaTransfrontaliera(v) {
         return {
             data: v.data, numero: v.numero, idSdi: v.idSdi,
             tipoDoc: v.tipoDoc, nome: v.nome, piva: v.piva,
-            aliquota: '', imponibile: v.impTrans || 0, imposta: v.ivaTrans || 0,
-            natura: '', bollo: ''
+            aliquota: '', imponibile: v.imponibile || 0, imposta: v.imposta || 0,
+            natura: 'Non ripartito', bollo: 'No'
         };
     }
 
@@ -2516,7 +2544,7 @@
      * Ogni aliquota produce una riga; il raggruppamento per fattura avviene
      * poi in generaExcelFatture.
      */
-    function analizzaDettagliFatture(voci) {
+    function analizzaDettagliFattureApi(voci, sezione) {
         var righe = [];
         var esiti = creaRegistroEsiti(voci.length);
         nastro.prepara(voci.length);
@@ -2531,8 +2559,6 @@
             var chiave;
             try { chiave = chiaveDocumento(voce); } catch (e) { chiave = 'indice ' + idx; }
 
-            // Vedi lo stesso schema in scaricaFatture: un'annotazione sola per
-            // voce, mai zero mai due, altrimenti il nastro sfasa i colori.
             var annotato = false;
             function annotaUnaVolta(esito, motivo) {
                 if (annotato) return;
@@ -2540,58 +2566,52 @@
                 esiti.annota(chiave, esito, motivo);
             }
 
-            try {
-                aggiornaBarra(esiti, idx, voci.length, voce.numero, 12 + (idx / voci.length * 85));
+            aggiornaBarra(esiti, idx, voci.length, voce.numero, idx / voci.length * 100);
 
-                // Le transfrontaliere non hanno un dettaglio da aprire
-                if (voce.transfrontaliera) {
-                    righe.push(rigaDaTransfrontaliera(voce));
-                    annotaUnaVolta(ESITO.RIUSCITO, 'transfrontaliera');
-                    return passo(idx + 1);
-                }
-
-                window.location.hash = voce.hash;
-            } catch (e) {
-                annotaUnaVolta(ESITO.ERRORE, String(e));
-                righe.push(rigaBase(voce, 'ERRORE DI LETTURA'));
+            /*
+             * Le transfrontaliere transitate dallo SdI hanno lo stesso dettaglio
+             * delle altre fatture, con la ripartizione per aliquota e natura.
+             * Senza, la riga non ha aliquota e il pivot la scarta: l'Excel
+             * usciva con imponibile zero. Se il dettaglio manca si ripiega sui
+             * totali dell'elenco, in una colonna "Non ripartito".
+             */
+            if (voce.transfrontaliera && !voce.tipoInvio) {
+                righe.push(rigaDaTransfrontaliera(voce));
+                annotaUnaVolta(ESITO.RIUSCITO, 'transfrontaliera senza dettaglio');
                 return passo(idx + 1);
             }
 
-            return attendi(dettaglioFatturaPronto).then(function (ok) {
-                if (!ok) {
-                    annotaUnaVolta(ESITO.ERRORE, 'dettaglio non caricato');
-                    righe.push(rigaBase(voce, 'DETTAGLIO NON LETTO'));
-                    return;
-                }
-
-                var dett = leggiDettaglioFattura(voce);
-                if (dett.aliquote.length > 0) {
-                    dett.aliquote.forEach(function (al) {
-                        righe.push({
-                            data: voce.data, numero: voce.numero, idSdi: dett.idSdi || voce.idSdi,
-                            tipoDoc: voce.tipoDoc, nome: dett.nome, piva: dett.piva,
-                            aliquota: al.aliquota, imponibile: al.imponibile, imposta: al.imposta,
-                            natura: al.natura, bollo: dett.bollo || voce.bollo || 'No'
+            return chiamataApi('/cons/cons-services/rs/fatture/dettaglio/' + voce.id)
+                .then(function (j) {
+                    var dett = normalizzaDettaglioFattura(j, sezione);
+                    if (dett.aliquote.length > 0) {
+                        dett.aliquote.forEach(function (al) {
+                            righe.push({
+                                data: voce.data, numero: voce.numero, idSdi: dett.idSdi || voce.idSdi,
+                                tipoDoc: voce.tipoDoc, nome: dett.nome || voce.nome, piva: dett.piva || voce.piva,
+                                aliquota: al.aliquota, imponibile: al.imponibile, imposta: al.imposta,
+                                natura: al.natura, bollo: dett.bollo
+                            });
                         });
-                    });
-                    annotaUnaVolta(ESITO.RIUSCITO, '');
-                } else {
-                    // Fattura senza righe IVA: fuori campo, o tracciato inatteso
-                    righe.push(rigaBase(voce, ''));
-                    annotaUnaVolta(ESITO.SALTATO, 'nessuna riga IVA');
-                }
-            }).catch(function (e) {
-                annotaUnaVolta(ESITO.ERRORE, String(e));
-                righe.push(rigaBase(voce, 'ERRORE DI LETTURA'));
-            }).then(function () {
-                return tornaAllaLista().catch(function (e) {
-                    log('Ritorno alla lista fallito dopo ' + chiave + ': ' + e);
-                });
-            }).catch(function (e) {
-                annotaUnaVolta(ESITO.ERRORE, String(e));
-            }).then(function () {
-                return passo(idx + 1);
-            });
+                        annotaUnaVolta(ESITO.RIUSCITO, '');
+                    } else if (voce.transfrontaliera) {
+                        righe.push(rigaDaTransfrontaliera(voce));
+                        annotaUnaVolta(ESITO.RIUSCITO, 'transfrontaliera senza righe IVA');
+                    } else {
+                        righe.push(rigaBase(voce, ''));
+                        annotaUnaVolta(ESITO.SALTATO, 'nessuna riga IVA');
+                    }
+                })
+                .catch(function (e) {
+                    if (voce.transfrontaliera) {
+                        righe.push(rigaDaTransfrontaliera(voce));
+                        annotaUnaVolta(ESITO.RIUSCITO, 'transfrontaliera: dettaglio non letto, totali dall\'elenco');
+                        return;
+                    }
+                    annotaUnaVolta(ESITO.ERRORE, String(e));
+                    righe.push(rigaBase(voce, 'ERRORE DI LETTURA'));
+                })
+                .then(function () { return pausa(150).then(function () { return passo(idx + 1); }); });
         }
 
         return passo(0);
@@ -2607,104 +2627,21 @@
         };
     }
 
-    /**
-     * Legge i dati di una fattura dal dettaglio aperto.
-     * Restituisce { idSdi, nome, piva, bollo, aliquote: [{aliquota, imponibile, imposta, natura}] }
-     *
-     * strong.ng-binding ordinati:
-     *   [0]=utente  [1]=pIvaAzienda  [2]=idSdi  [3]=statoSdi  [4]=nPosizione
-     *   [5]=dataInvio  [6]=dataRicezione
-     *   [12]=nomeFornitore  [13]=cfFornitore  [15]=pivaFornitore
-     *   [16]=nomeCliente    [19]=pivaCliente
-     * La sezione "Fornitore" ha label .custom-font "Fornitore", la sezione "Cliente" ha "Cliente".
-     * Su fatture emesse il campo rilevante è "Cliente"; su ricevute è "Fornitore".
-     * Strategia: leggo entrambi e poi determino in base all'URL/sezione corrente.
-     */
-    function leggiDettaglioFattura(voce) {
-        /*
-         * Nome, P.IVA e Bollo vengono portati da voce (letti dalla lista in Fase 1,
-         * dove i dati sono più affidabili). Qui leggiamo solo:
-         * - ID SDI dal pannello dettaglio (strong[2])
-         * - Tabella IVA (aliquote, imponibili, imposte)
-         *
-         * strong.ng-binding della pagina:
-         *   [0]=utente  [1]=pIvaAzienda  [2]=ID SDI  [3]=statoSdi  [4]=nPosizione
-         *   [5]=dataInvio  [6]=dataRicezione  [7]=tipoInvio
-         *   [12]=nomeFornitore  [13]=cfFornitore  [15]=pivaFornitore
-         *   [16]=nomeCliente    [19]=pivaCliente
-         */
-        var result = {
-            idSdi:    '',
-            nome:     voce.nome  || '',   // da lista
-            piva:     voce.piva  || '',   // da lista
-            bollo:    voce.bollo || 'No', // da lista
-            aliquote: []
-        };
-
-        var strongs = document.querySelectorAll('strong.ng-binding');
-        // ID SDI: strong[2] contiene il numero identificativo SdI/file
-        result.idSdi = strongs[2] ? strongs[2].innerText.trim() : voce.idSdi;
-
-        // Se nome/piva ancora vuoti (transfrontaliere / casi particolari), leggi dal dettaglio
-        if (!result.nome) {
-            var suEmesse = window.location.hash.indexOf('/emesse') > -1;
-            result.nome = (suEmesse ? (strongs[16] ? strongs[16].innerText.trim() : '')
-                                    : (strongs[12] ? strongs[12].innerText.trim() : ''));
-            result.piva = (suEmesse ? (strongs[19] ? strongs[19].innerText.trim() : '')
-                                    : (strongs[15] ? strongs[15].innerText.trim() : ''));
-        }
-
-        // Tabella IVA – cerca la prima tabella con header "Imponibile" e "Aliquota IVA"
-        var tabIva = null;
-        var tables = document.querySelectorAll('table');
-        for (var t = 0; t < tables.length; t++) {
-            var ths = tables[t].querySelectorAll('thead th');
-            for (var h = 0; h < ths.length; h++) {
-                if (ths[h].innerText.indexOf('Imponibile') > -1) { tabIva = tables[t]; break; }
-            }
-            if (tabIva) break;
-        }
-        if (tabIva) {
-            // Righe dati: solo ng-scope (esclude riga Totale)
-            var righeIva = tabIva.querySelectorAll('tbody tr.ng-scope');
-            if (righeIva.length === 0) {
-                // Fallback: tutte tranne ultima
-                var tutte = tabIva.querySelectorAll('tbody tr');
-                righeIva = Array.prototype.slice.call(tutte, 0, tutte.length - 1);
-            }
-            Array.prototype.forEach.call(righeIva, function (r) {
-                var c = r.children;
-                /*
-                 * Struttura tbody tr.ng-scope tabella IVA dettaglio:
-                 * [0]=Imponibile (th, testo "17,54 €")
-                 * [1]=AliquotaIVA (td, testo "22.00 %" oppure vuoto se natura)
-                 * [2]=Imposta    (td, testo "3,86 €")
-                 * [3]=Natura     (td, testo "N2" / "" ecc.)
-                 * [4]=EsigibilitàIVA
-                 * convN gestisce   e € grazie al fix applicato sopra
-                 */
-                var imp  = c[0] ? convN(c[0].innerText) : 0;
-                var aliq = c[1] ? c[1].innerText.replace(/\u00A0/g,'').trim() : '';
-                var imp2 = c[2] ? convN(c[2].innerText) : 0;
-                var nat  = c[3] ? c[3].innerText.replace(/\u00A0/g,'').trim() : '';
-                // ignora righe con tutti i valori a 0 e aliquota vuota (righe spurie)
-                if (imp === 0 && imp2 === 0 && !aliq && !nat) return;
-                result.aliquote.push({ aliquota: aliq, imponibile: imp, imposta: imp2, natura: nat });
-            });
-        }
-
-        return result;
-    }
-
     /* ═══════════════════════════════════════════════════════════════
-       COSTRUTTORE DI CARTELLE SPREADSHEETML
+       COSTRUTTORE DI CARTELLE XLSX (OOXML)
 
-       Fino alla 0.97α il file .xls era una tabella HTML rinominata: Excel
-       apriva con l'avviso di formato non corrispondente e i numeri arrivavano
-       come stringhe italiane, quindi non sommabili senza conversione a mano.
+       Fino alla 1.0 il file era SpreadsheetML 2003 — XML puro — salvato con
+       estensione .xls. Excel lo apriva, ma prima mostrava ogni volta l'avviso
+       che il formato non corrisponde all'estensione: un file che si annuncia
+       sbagliato, aperto davanti a un cliente, sembra un file rotto.
 
-       SpreadsheetML 2003 è XML puro, non richiede librerie, e permette
-       numeri veri e più fogli in un file solo.
+       Qui si scrive un .xlsx vero: un archivio ZIP con dentro le parti OOXML.
+       Nessuna libreria — lo stesso sorgente gira come content script sotto la
+       CSP delle estensioni, dove un @require non arriverebbe mai — e nessuna
+       compressione: i fogli sono piccoli, il metodo ZIP "store" è legittimo
+       quanto deflate e costa un CRC32 invece di un compressore scritto a mano.
+
+       La stessa scelta è già in esercizio nel plugin gemello Cassetto-Utility.
     ═══════════════════════════════════════════════════════════════ */
 
     function xmlEsc(s) {
@@ -2714,97 +2651,244 @@
             .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');   // caratteri che invalidano l'XML
     }
 
-    /** "dd/mm/yyyy" → "yyyy-mm-ddT00:00:00", il formato che SpreadsheetML vuole per le date. */
-    function dataIsoDaIt(s) {
+    /** "dd/mm/yyyy" → seriale Excel (giorni dal 30/12/1899). null se non è una data. */
+    function serialeDataIt(s) {
         var p = String(s || '').trim().split('/');
         if (p.length !== 3 || p[2].length !== 4) return null;
-        return p[2] + '-' + pad2(p[1]) + '-' + pad2(p[0]) + 'T00:00:00';
+        var g = Number(p[0]), m = Number(p[1]), a = Number(p[2]);
+        if (!isFinite(g) || !isFinite(m) || !isFinite(a)) return null;
+        var t = Date.UTC(a, m - 1, g);
+        if (isNaN(t)) return null;
+        return Math.round(t / 86400000) + 25569;
     }
 
     /**
      * Una cella. tipo: 'testo' | 'numero' | 'data' | 'vuoto'
      * stile: nome di uno degli stili dichiarati sotto.
+     * Torna un oggetto: il riferimento (A1, B1...) lo sa solo chi scrive la riga.
      */
     function cella(valore, tipo, stile) {
-        var attrStile = stile ? ' ss:StyleID="' + stile + '"' : '';
-
-        if (tipo === 'vuoto' || valore === null || valore === undefined || valore === '') {
-            return '<Cell' + attrStile + '/>';
-        }
-        if (tipo === 'numero') {
-            var n = Number(valore);
-            if (!isFinite(n)) return '<Cell' + attrStile + '/>';
-            // Punto decimale: è Excel a formattarlo poi secondo la lingua di sistema
-            return '<Cell' + attrStile + '><Data ss:Type="Number">' + n + '</Data></Cell>';
-        }
-        if (tipo === 'data') {
-            var iso = dataIsoDaIt(valore);
-            if (!iso) return '<Cell' + attrStile + '><Data ss:Type="String">' + xmlEsc(valore) + '</Data></Cell>';
-            return '<Cell' + attrStile + '><Data ss:Type="DateTime">' + iso + '</Data></Cell>';
-        }
-        return '<Cell' + attrStile + '><Data ss:Type="String">' + xmlEsc(valore) + '</Data></Cell>';
+        return { v: valore, t: tipo || 'testo', s: stile || '' };
     }
 
-    function riga(celle, altezzaAuto) {
-        return '<Row' + (altezzaAuto ? ' ss:AutoFitHeight="1"' : '') + '>' + celle.join('') + '</Row>';
+    function riga(celle) {
+        return celle;
     }
 
-    /* Stili dichiarati una volta e riferiti per nome dalle celle. */
-    var STILI_XLS =
-        '<Styles>' +
-        '<Style ss:ID="Default" ss:Name="Normal"><Alignment ss:Vertical="Bottom"/>' +
-            '<Font ss:FontName="Calibri" ss:Size="11"/></Style>' +
-        '<Style ss:ID="titolo"><Font ss:FontName="Calibri" ss:Size="13" ss:Bold="1" ss:Color="#DDE1E7"/>' +
-            '<Interior ss:Color="#22262F" ss:Pattern="Solid"/>' +
-            '<Alignment ss:Horizontal="Center" ss:Vertical="Center"/></Style>' +
-        '<Style ss:ID="intestazione"><Font ss:Bold="1" ss:Color="#22262F"/>' +
-            '<Interior ss:Color="#E8EAEE" ss:Pattern="Solid"/>' +
-            '<Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/>' +
-            '<Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1"/></Borders></Style>' +
-        '<Style ss:ID="data"><NumberFormat ss:Format="dd/mm/yyyy"/>' +
-            '<Alignment ss:Horizontal="Center"/></Style>' +
-        '<Style ss:ID="valuta"><NumberFormat ss:Format="#,##0.00"/></Style>' +
-        '<Style ss:ID="valutaNc"><NumberFormat ss:Format="#,##0.00"/>' +
-            '<Font ss:Color="#A8443C"/></Style>' +
-        '<Style ss:ID="valutaTot"><NumberFormat ss:Format="#,##0.00"/><Font ss:Bold="1"/></Style>' +
-        '<Style ss:ID="valutaMemo"><NumberFormat ss:Format="#,##0.00"/>' +
-            '<Font ss:Color="#8A8F98" ss:Italic="1"/></Style>' +
-        '<Style ss:ID="totale"><Font ss:Bold="1"/><NumberFormat ss:Format="#,##0.00"/>' +
-            '<Interior ss:Color="#EDE7D6" ss:Pattern="Solid"/>' +
-            '<Borders><Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="2"/></Borders></Style>' +
-        '<Style ss:ID="totaleTesto"><Font ss:Bold="1"/>' +
-            '<Interior ss:Color="#EDE7D6" ss:Pattern="Solid"/>' +
-            '<Alignment ss:Horizontal="Right"/>' +
-            '<Borders><Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="2"/></Borders></Style>' +
-        '<Style ss:ID="centrato"><Alignment ss:Horizontal="Center"/></Style>' +
-        '</Styles>';
+    /* ─── ZIP senza compressione ────────────────────────────────── */
+
+    var CRC_TABELLA = (function () {
+        var t = new Uint32Array(256);
+        for (var n = 0; n < 256; n++) {
+            var c = n;
+            for (var k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+            t[n] = c >>> 0;
+        }
+        return t;
+    })();
+
+    function crc32(bytes) {
+        var c = 0xFFFFFFFF;
+        for (var i = 0; i < bytes.length; i++) c = CRC_TABELLA[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8);
+        return (c ^ 0xFFFFFFFF) >>> 0;
+    }
 
     /**
-     * Assembla una cartella di lavoro.
-     * fogli: [{ nome, larghezze:[n], righe:[stringheXML] }]
+     * Un archivio ZIP con metodo "store". `parti` è un array di
+     * `{nome, dati:Uint8Array}`; torna l'archivio come Uint8Array.
      */
-    function costruisciCartella(fogli) {
-        var xml =
-            '<?xml version="1.0" encoding="UTF-8"?>\n' +
-            '<?mso-application progid="Excel.Sheet"?>\n' +
-            '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"' +
-            ' xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">' +
-            STILI_XLS;
+    function zipStore(parti) {
+        var enc = new TextEncoder();
+        var adesso = new Date();
+        var ora = ((adesso.getHours() << 11) | (adesso.getMinutes() << 5) | (adesso.getSeconds() >> 1)) & 0xFFFF;
+        var giorno = (((adesso.getFullYear() - 1980) << 9) | ((adesso.getMonth() + 1) << 5) | adesso.getDate()) & 0xFFFF;
 
-        fogli.forEach(function (f) {
-            var colonne = (f.larghezze || []).map(function (w) {
-                return '<Column ss:AutoFitWidth="0" ss:Width="' + w + '"/>';
-            }).join('');
-
-            xml += '<Worksheet ss:Name="' + xmlEsc(nomeFoglioValido(f.nome)) + '">' +
-                   '<Table>' + colonne + f.righe.join('') + '</Table>' +
-                   '<WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">' +
-                   '<FreezePanes/><FrozenNoSplit/><SplitHorizontal>2</SplitHorizontal>' +
-                   '<TopRowBottomPane>2</TopRowBottomPane><ActivePane>2</ActivePane>' +
-                   '</WorksheetOptions></Worksheet>';
+        var voci = parti.map(function (p) {
+            return { nome: enc.encode(p.nome), dati: p.dati, crc: crc32(p.dati), offset: 0 };
         });
 
-        return xml + '</Workbook>';
+        var misuraLocali = 0, misuraCentrale = 0;
+        voci.forEach(function (v) {
+            misuraLocali += 30 + v.nome.length + v.dati.length;
+            misuraCentrale += 46 + v.nome.length;
+        });
+
+        var buf = new Uint8Array(misuraLocali + misuraCentrale + 22);
+        var vista = new DataView(buf.buffer);
+        var p = 0;
+
+        voci.forEach(function (v) {
+            v.offset = p;
+            vista.setUint32(p,      0x04034B50, true);  // firma dell'intestazione locale
+            vista.setUint16(p + 4,  20, true);          // versione minima per estrarre
+            vista.setUint16(p + 6,  0x0800, true);      // nomi in UTF-8
+            vista.setUint16(p + 8,  0, true);           // metodo: store
+            vista.setUint16(p + 10, ora, true);
+            vista.setUint16(p + 12, giorno, true);
+            vista.setUint32(p + 14, v.crc, true);
+            vista.setUint32(p + 18, v.dati.length, true);
+            vista.setUint32(p + 22, v.dati.length, true);
+            vista.setUint16(p + 26, v.nome.length, true);
+            vista.setUint16(p + 28, 0, true);           // campo extra assente
+            p += 30;
+            buf.set(v.nome, p); p += v.nome.length;
+            buf.set(v.dati, p); p += v.dati.length;
+        });
+
+        var inizioCentrale = p;
+        voci.forEach(function (v) {
+            vista.setUint32(p,      0x02014B50, true);  // firma della voce di indice
+            vista.setUint16(p + 4,  20, true);
+            vista.setUint16(p + 6,  20, true);
+            vista.setUint16(p + 8,  0x0800, true);
+            vista.setUint16(p + 10, 0, true);
+            vista.setUint16(p + 12, ora, true);
+            vista.setUint16(p + 14, giorno, true);
+            vista.setUint32(p + 16, v.crc, true);
+            vista.setUint32(p + 20, v.dati.length, true);
+            vista.setUint32(p + 24, v.dati.length, true);
+            vista.setUint16(p + 28, v.nome.length, true);
+            // extra, commento, disco, attributi: tutti zero, e l'array nasce a zero
+            vista.setUint32(p + 42, v.offset, true);
+            p += 46;
+            buf.set(v.nome, p); p += v.nome.length;
+        });
+
+        vista.setUint32(p,      0x06054B50, true);      // fine dell'indice centrale
+        vista.setUint16(p + 8,  voci.length, true);
+        vista.setUint16(p + 10, voci.length, true);
+        vista.setUint32(p + 12, p - inizioCentrale, true);
+        vista.setUint32(p + 16, inizioCentrale, true);
+        return buf;
+    }
+
+    /* ─── Stili ─────────────────────────────────────────────────────
+       Sono un insieme chiuso, quindi styles.xml è una costante e non si
+       ricostruisce a ogni export. STILI_XLSX dice a quale posizione di
+       <cellXfs> corrisponde ogni nome usato dai generatori: i nomi sono
+       quelli di prima — titolo, intestazione, valuta... — e i colori pure.
+
+       Il titolo va a sinistra: centrato dentro la sola cella A1 finiva
+       nascosto sotto la colonna successiva e a schermo non si leggeva.
+    ─────────────────────────────────────────────────────────────── */
+
+    var STILI_XLSX = {
+        titolo: 1, intestazione: 2, data: 3, valuta: 4, valutaNc: 5,
+        valutaTot: 6, valutaMemo: 7, totale: 8, totaleTesto: 9, centrato: 10
+    };
+
+    var XLSX_STYLES = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        + '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        + '<numFmts count="2">'
+            + '<numFmt numFmtId="164" formatCode="#,##0.00"/>'
+            + '<numFmt numFmtId="165" formatCode="dd/mm/yyyy"/>'
+        + '</numFmts>'
+        + '<fonts count="6">'
+            + '<font><sz val="11"/><name val="Calibri"/></font>'
+            + '<font><b/><color rgb="FF22262F"/><sz val="11"/><name val="Calibri"/></font>'
+            + '<font><b/><color rgb="FFDDE1E7"/><sz val="13"/><name val="Calibri"/></font>'
+            + '<font><b/><sz val="11"/><name val="Calibri"/></font>'
+            + '<font><color rgb="FFA8443C"/><sz val="11"/><name val="Calibri"/></font>'
+            + '<font><i/><color rgb="FF8A8F98"/><sz val="11"/><name val="Calibri"/></font>'
+        + '</fonts>'
+        + '<fills count="5">'
+            + '<fill><patternFill patternType="none"/></fill>'
+            + '<fill><patternFill patternType="gray125"/></fill>'
+            + '<fill><patternFill patternType="solid"><fgColor rgb="FF22262F"/><bgColor indexed="64"/></patternFill></fill>'
+            + '<fill><patternFill patternType="solid"><fgColor rgb="FFE8EAEE"/><bgColor indexed="64"/></patternFill></fill>'
+            + '<fill><patternFill patternType="solid"><fgColor rgb="FFEDE7D6"/><bgColor indexed="64"/></patternFill></fill>'
+        + '</fills>'
+        + '<borders count="3">'
+            + '<border><left/><right/><top/><bottom/><diagonal/></border>'
+            + '<border><left/><right/><top/><bottom style="thin"/><diagonal/></border>'
+            + '<border><left/><right/><top style="medium"/><bottom/><diagonal/></border>'
+        + '</borders>'
+        + '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
+        + '<cellXfs count="11">'
+            + '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
+            + '<xf numFmtId="0" fontId="2" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1">'
+                + '<alignment horizontal="left" vertical="center"/></xf>'
+            + '<xf numFmtId="0" fontId="1" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1">'
+                + '<alignment horizontal="center" vertical="center" wrapText="1"/></xf>'
+            + '<xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1">'
+                + '<alignment horizontal="center"/></xf>'
+            + '<xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>'
+            + '<xf numFmtId="164" fontId="4" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/>'
+            + '<xf numFmtId="164" fontId="3" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/>'
+            + '<xf numFmtId="164" fontId="5" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/>'
+            + '<xf numFmtId="164" fontId="3" fillId="4" borderId="2" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1"/>'
+            + '<xf numFmtId="0" fontId="3" fillId="4" borderId="2" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1">'
+                + '<alignment horizontal="right"/></xf>'
+            + '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1">'
+                + '<alignment horizontal="center"/></xf>'
+        + '</cellXfs>'
+        + '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>'
+        + '</styleSheet>';
+
+    /** Indice di colonna (1 = A) in lettere. */
+    function colonnaLettera(i) {
+        var s = '';
+        while (i > 0) { var r = (i - 1) % 26; s = String.fromCharCode(65 + r) + s; i = (i - 1 - r) / 26; }
+        return s;
+    }
+
+    /*
+     * Le larghezze dei fogli sono in punti, come le voleva SpreadsheetML;
+     * OOXML le vuole in caratteri. Un carattere di Calibri 11 sta in sette
+     * pixel, più cinque pixel di margini della cella.
+     */
+    function larghezzaInCaratteri(punti) {
+        var px = Number(punti) * 96 / 72;
+        return Math.round(Math.max(1, (px - 5) / 7) * 100) / 100;
+    }
+
+    function cellaXML(c, rif) {
+        var s = STILI_XLSX[c.s] ? ' s="' + STILI_XLSX[c.s] + '"' : '';
+
+        if (c.t === 'vuoto' || c.v === null || c.v === undefined || c.v === '') {
+            return '<c r="' + rif + '"' + s + '/>';
+        }
+        if (c.t === 'numero') {
+            var n = Number(c.v);
+            // Una cella numerica non leggibile resta vuota: meglio il vuoto di
+            // uno zero che nessuno ha contato.
+            if (!isFinite(n)) return '<c r="' + rif + '"' + s + '/>';
+            return '<c r="' + rif + '"' + s + '><v>' + n + '</v></c>';
+        }
+        if (c.t === 'data') {
+            var seriale = serialeDataIt(c.v);
+            if (seriale === null) {
+                return '<c r="' + rif + '"' + s + ' t="inlineStr"><is><t xml:space="preserve">' + xmlEsc(c.v) + '</t></is></c>';
+            }
+            return '<c r="' + rif + '"' + s + '><v>' + seriale + '</v></c>';
+        }
+        return '<c r="' + rif + '"' + s + ' t="inlineStr"><is><t xml:space="preserve">' + xmlEsc(c.v) + '</t></is></c>';
+    }
+
+    /** Un foglio, con titolo e intestazioni bloccati sulle prime due righe. */
+    function foglioXML(foglio) {
+        var cols = '';
+        if (foglio.larghezze && foglio.larghezze.length) {
+            cols = '<cols>' + foglio.larghezze.map(function (w, i) {
+                return '<col min="' + (i + 1) + '" max="' + (i + 1) + '" width="' +
+                       larghezzaInCaratteri(w) + '" customWidth="1"/>';
+            }).join('') + '</cols>';
+        }
+        var righe = (foglio.righe || []).map(function (r, i) {
+            if (!r || !r.length) return '<row r="' + (i + 1) + '"/>';
+            return '<row r="' + (i + 1) + '">' + r.map(function (c, j) {
+                return cellaXML(c, colonnaLettera(j + 1) + (i + 1));
+            }).join('') + '</row>';
+        }).join('');
+
+        return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            + '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+            + '<sheetViews><sheetView workbookViewId="0">'
+            + '<pane ySplit="2" topLeftCell="A3" activePane="bottomLeft" state="frozen"/>'
+            + '<selection pane="bottomLeft" activeCell="A3" sqref="A3"/>'
+            + '</sheetView></sheetViews>'
+            + '<sheetFormatPr defaultRowHeight="15"/>'
+            + cols + '<sheetData>' + righe + '</sheetData></worksheet>';
     }
 
     /** Excel rifiuta : \ / ? * [ ] nei nomi foglio e li tronca a 31 caratteri. */
@@ -2812,9 +2896,66 @@
         return String(nome || 'Foglio').replace(/[:\\\/?*\[\]]/g, '-').substring(0, 31);
     }
 
+    /**
+     * Assembla una cartella di lavoro.
+     * fogli: [{ nome, larghezze:[n], righe:[[cella, ...]] }] → Uint8Array
+     */
+    function costruisciCartella(fogli) {
+        var enc = new TextEncoder();
+        var CT = 'application/vnd.openxmlformats-officedocument.spreadsheetml';
+        var REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+        var relStili = 'rId' + (fogli.length + 1);
+
+        var tipi = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            + '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            + '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            + '<Default Extension="xml" ContentType="application/xml"/>'
+            + '<Override PartName="/xl/workbook.xml" ContentType="' + CT + '.sheet.main+xml"/>'
+            + fogli.map(function (f, i) {
+                return '<Override PartName="/xl/worksheets/sheet' + (i + 1) + '.xml" ContentType="' + CT + '.worksheet+xml"/>';
+            }).join('')
+            + '<Override PartName="/xl/styles.xml" ContentType="' + CT + '.styles+xml"/>'
+            + '</Types>';
+
+        var relsRadice = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            + '<Relationship Id="rId1" Type="' + REL + '/officeDocument" Target="xl/workbook.xml"/>'
+            + '</Relationships>';
+
+        var libro = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            + '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="' + REL + '"><sheets>'
+            + fogli.map(function (f, i) {
+                return '<sheet name="' + xmlEsc(nomeFoglioValido(f.nome)) + '" sheetId="' + (i + 1) + '" r:id="rId' + (i + 1) + '"/>';
+            }).join('')
+            + '</sheets></workbook>';
+
+        var relsLibro = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            + fogli.map(function (f, i) {
+                return '<Relationship Id="rId' + (i + 1) + '" Type="' + REL + '/worksheet" Target="worksheets/sheet' + (i + 1) + '.xml"/>';
+            }).join('')
+            + '<Relationship Id="' + relStili + '" Type="' + REL + '/styles" Target="styles.xml"/>'
+            + '</Relationships>';
+
+        var parti = [
+            { nome: '[Content_Types].xml',        dati: enc.encode(tipi) },
+            { nome: '_rels/.rels',                dati: enc.encode(relsRadice) },
+            { nome: 'xl/workbook.xml',            dati: enc.encode(libro) },
+            { nome: 'xl/_rels/workbook.xml.rels', dati: enc.encode(relsLibro) },
+            { nome: 'xl/styles.xml',              dati: enc.encode(XLSX_STYLES) }
+        ];
+        fogli.forEach(function (f, i) {
+            parti.push({ nome: 'xl/worksheets/sheet' + (i + 1) + '.xml', dati: enc.encode(foglioXML(f)) });
+        });
+
+        return zipStore(parti);
+    }
+
     /** Avvia il download di una cartella già costruita. */
-    function scaricaCartella(xml, nomeFile) {
-        var blob = new Blob(['﻿' + xml], { type: 'application/vnd.ms-excel;charset=utf-8' });
+    function scaricaCartella(dati, nomeFile) {
+        var blob = new Blob([dati], {
+            type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        });
         var url = URL.createObjectURL(blob);
         var a = document.createElement('a');
         a.href = url;
@@ -2833,7 +2974,7 @@
         if (piva) parti.push(piva);
         if (periodo) parti.push(periodo);
         parti.push(sezione);
-        return parti.join('_') + (estensione || '.xls');
+        return parti.join('_') + (estensione || '.xlsx');
     }
 
     /* ═══════════════════════════════════════════════════════════════
@@ -2915,7 +3056,7 @@
         return { colonne: colonne, fatture: fatture, ordine: ordine };
     }
 
-    function generaExcelFatture(righe) {
+    function generaExcelFatture(righe, sezione, transfrontaliera) {
         if (!righe || righe.length === 0) { setStatus('Nessuna riga da esportare.'); return; }
 
         var pivot = pivotFatture(righe);
@@ -2932,9 +3073,10 @@
         colonne.forEach(function () { larghezze.push(76, 76); });
         larghezze.push(84, 76, 88, 62);
 
-        var titolo = document.querySelector('h2.ng-binding, h2.no-margin-top');
+        var etichetteSezione = { emesse: 'Fatture emesse', ricevute: 'Fatture ricevute' };
+        var titoloTesto = (transfrontaliera ? 'Transfrontaliere - ' : '') + (etichetteSezione[sezione] || 'Fatture');
         var righeFoglio = [
-            riga([cella(titolo ? titolo.innerText.trim() : 'Fatture', 'testo', 'titolo')].concat(
+            riga([cella(titoloTesto, 'testo', 'titolo')].concat(
                  intestazioni.slice(1).map(function () { return cella('', 'vuoto', 'titolo'); }))),
             riga(intestazioni.map(function (t) { return cella(t, 'testo', 'intestazione'); }))
         ];
@@ -3021,13 +3163,11 @@
         ]));
 
         /* ── Scrittura ─────────────────────────────────────────────── */
-        var hash = window.location.hash;
-        var sezione = hash.indexOf('/transfrontaliere/') > -1
-            ? (hash.indexOf('/emesse') > -1 ? 'trans_emesse' : 'trans_ricevute')
-            : (hash.indexOf('/emesse') > -1 ? 'emesse'
-             : hash.indexOf('/ricevute') > -1 ? 'ricevute' : 'fatture');
+        var sezioneFile = transfrontaliera
+            ? (sezione === 'emesse' ? 'trans_emesse' : 'trans_ricevute')
+            : (sezione === 'emesse' ? 'emesse' : sezione === 'ricevute' ? 'ricevute' : 'fatture');
 
-        var file = nomeFile(sezione);
+        var file = nomeFile(sezioneFile);
         scaricaCartella(costruisciCartella([
             { nome: 'Fatture',      larghezze: larghezze,        righe: righeFoglio },
             { nome: 'Riepilogo IVA', larghezze: [140, 90, 90, 90], righe: righeRiepilogo }
@@ -3057,28 +3197,96 @@
            valori restano calcolati in JavaScript
     ═══════════════════════════════════════════════════════════════ */
 
+    /**
+     * Da una riga dell'elenco corrispettivi (API corrispettivi/sintesi/elenco)
+     * alla forma usata dal resto dello script.
+     */
+    function normalizzaVoceCorrispettivo(j) {
+        return {
+            idInvio: j.idInvio || '',
+            matricola: j.matricolaDispositivo || '',
+            data: isoADataIt(j.timeRilevazione || j.dataAccoglienzaFile),
+            quando: String(j.timeRilevazione || j.dataAccoglienzaFile || ''),
+            totaleLordo: convApiImporto(j.importo),
+            // Solo per i distributori automatici
+            modalita: j.modalitaRilevazione || '',
+            incassato: convApiImporto(j.totaleIncassato)
+        };
+    }
+
+    /**
+     * Dal dettaglio di un invio (API corrispettivi/dettaglio/{id}) alla forma
+     * { aliquote: {id: {imp, iva}}, resi, annulli }, con lo stesso criterio
+     * di identificazione aliquota del lettore DOM che sostituisce:
+     * ventilazione IVA prima di tutto, poi l'aliquota numerica, poi la
+     * natura, altrimenti "Esente/N.I.".
+     */
+    function normalizzaDettaglioCorrispettivo(j) {
+        var aliquote = {};
+        var resi = 0, annulli = 0;
+
+        (j.datiContabiliRT_MC || []).forEach(function (r) {
+            var aliq = (r.aliquota || '').trim();
+            var natura = (r.natura || '').trim();
+            var vent = (r.ventilazione || '').trim();
+            var id = vent ? 'Ventilazione IVA' : (parseFloat(aliq) > 0 ? parseFloat(aliq) + '%' : (natura || 'Esente/N.I.'));
+
+            if (!aliquote[id]) aliquote[id] = { imp: 0, iva: 0 };
+            aliquote[id].imp += convApiImporto(r.imponibile);
+            aliquote[id].iva += convApiImporto(r.imposta);
+            resi += convApiImporto(r.resi);
+            annulli += convApiImporto(r.annullato);
+        });
+
+        return { aliquote: aliquote, resi: resi, annulli: annulli };
+    }
+
     function avviaAnalisiCorrispettivi() {
-        if (window.location.hash.indexOf('/corrispettivi/') === -1) {
+        if (window.location.pathname.indexOf('/corrispettivi/') === -1) {
             avvisa('Apri prima la sezione Corrispettivi.');
             return;
         }
         if (_inCorso) return;
 
+        var periodo = leggiPeriodoCorrente();
+        if (!periodo) { avvisa('Imposta le date "Dal" e "Al" nel modulo di ricerca del portale.'); return; }
+        var piva = rileva_PIVA();
+        if (!piva || piva === 'X') { avvisa('Seleziona una singola partita IVA nel filtro del portale (non "Tutte").'); return; }
+
         setRunning(true, 'Preparo il foglio dei corrispettivi');
         setProgress(0, 'Raccolta della lista.');
 
-        setPage(1)
-            .then(function () { return raccogliVociCorr(); })
+        var datiDA = {};
+
+        raccogliVociCorrApi(periodo.dal, periodo.al, piva)
             .then(function (voci) {
                 if (_stop) return null;
                 if (voci.length === 0) { setStatus('Nessun corrispettivo trovato nel periodo.'); return null; }
-                setStatus(voci.length + ' corrispettivi. Lettura dei dettagli…');
-                return analizzaDettagliCorr(voci);
+
+                var vociRT = voci.filter(function (v) { return v.tipo !== 'DA'; });
+                var vociDA = voci.filter(function (v) { return v.tipo === 'DA'; });
+
+                // I distributori non hanno dettaglio da leggere: l'elenco basta
+                var primaDA = vociDA.length === 0 ? Promise.resolve() :
+                    letturePrecedentiDA(periodo.dal, piva).then(function (prec) {
+                        datiDA = calcolaVendutoDA(vociDA, prec);
+                    });
+
+                return primaDA.then(function () {
+                    if (_stop) return null;
+                    if (vociRT.length === 0) {
+                        var esitiDA = creaRegistroEsiti(0);
+                        mostraResoconto(esitiDA, 'corrispettivi letti');
+                        return {};
+                    }
+                    setStatus(vociRT.length + ' corrispettivi. Lettura dei dettagli…');
+                    return analizzaDettagliCorrApi(vociRT);
+                });
             })
             .then(function (datiPerMatricola) {
                 if (!datiPerMatricola || _stop) return;
                 setProgress(97, 'Generazione del foglio…');
-                return pausa(150).then(function () { generaExcelCorrispettivi(datiPerMatricola); });
+                return pausa(150).then(function () { generaExcelCorrispettivi(datiPerMatricola, datiDA); });
             })
             .catch(function (e) {
                 log('Analisi corrispettivi interrotta da un errore: ' + e);
@@ -3087,56 +3295,236 @@
             .then(function () { setRunning(false); });
     }
 
-    /** Scorre tutte le pagine della lista corrispettivi. */
-    function raccogliVociCorr() {
-        var voci = [];
-        var totPagine = getTotalPages();
+    /** Tipi di corrispettivo per cui elenco e dettaglio sono verificati contro dati reali. */
+    var TIPI_CORRISPETTIVO_SUPPORTATI = ['RT', 'DA', 'DC'];
 
-        function leggiPagina() {
-            document.querySelectorAll('tr[data-ng-repeat*="vm.items"]').forEach(function (r) {
-                var linkEl = r.querySelector('a.btn.btn-primary.btn-xs');
-                if (!linkEl) return;
-                var href = linkEl.getAttribute('href') || '';
-                // Solo le righe che puntano davvero a un dettaglio corrispettivo
-                if (href.indexOf('/corrispettivi/dettaglio/') === -1) return;
-
-                var matricola = testoCella(r, 1);
-                var data = testoCella(r, 2).substring(0, 10);   // "dd/mm/yyyy" da "dd/mm/yyyy hh:mm"
-                if (!matricola || data.length < 10) return;     // righe template o vuote
-
-                // Angular monta tre copie della ng-repeat: dedupica per href
-                for (var i = 0; i < voci.length; i++) { if (voci[i].hash === href) return; }
-
-                voci.push({
-                    hash: href, matricola: matricola, data: data,
-                    totaleLordo: convN(testoCella(r, 5)),
-                    idInvio: testoCella(r, 0)
-                });
-            });
-        }
-
-        function passo(pagina) {
-            if (_stop) return Promise.resolve(voci);
-
-            leggiPagina();
-            setProgress(pagina / totPagine * 15,
-                        'Lista pagina ' + pagina + '/' + totPagine + '   ' + voci.length + ' documenti');
-
-            if (pagina >= totPagine) return setPage(1).then(function () { return voci; });
-            return setPage(pagina + 1).then(function (ok) {
-                if (!ok) {
-                    log('Pagina ' + (pagina + 1) + ' non caricata entro il limite: raccolta interrotta.');
-                    return voci;
-                }
-                return passo(pagina + 1);
-            });
-        }
-
-        return passo(1);
+    /**
+     * Le sette categorie di corrispettivo riportate dalla sintesi, con i
+     * codici che il portale usa nelle URL (verificati sul suo app.bundle,
+     * settembre 2026). RT e DA sono provati contro dati reali; gli altri
+     * servono ad avvisare l'utente se compaiono con invii > 0. Attenzione:
+     * CA, DC, RC e CO hanno endpoint di dettaglio propri, diversi da
+     * corrispettivi/dettaglio/{tipo}{id}.
+     */
+    function categorieDaSintesi(sintesi) {
+        return [
+            { tipo: 'RT', etichetta: 'Registratori telematici', conteggio: parseInt(sintesi.registratoriInvii, 10) || 0 },
+            { tipo: 'MC', etichetta: 'Multicassa', conteggio: parseInt(sintesi.multicassaInvii, 10) || 0 },
+            { tipo: 'DA', etichetta: 'Distributori automatici', conteggio: parseInt(sintesi.distributoriInvii, 10) || 0 },
+            { tipo: 'CA', etichetta: 'Carburanti', conteggio: parseInt(sintesi.carburantiInvii, 10) || 0 },
+            { tipo: 'DC', etichetta: 'Documenti commerciali', conteggio: parseInt(sintesi.documentiCommerciali, 10) || 0 },
+            { tipo: 'RC', etichetta: 'Registratori di cassa', conteggio: parseInt(sintesi.registratoriCassa, 10) || 0 },
+            { tipo: 'CO', etichetta: 'Torrette energia', conteggio: parseInt(sintesi.torretteEnergia, 10) || 0 }
+        ];
     }
 
-    /** Apre ogni corrispettivo e ne legge la tabella IVA, raggruppando per matricola. */
-    function analizzaDettagliCorr(voci) {
+    /**
+     * Elenco dei corrispettivi nel periodo dato, per la partita IVA data
+     * (entrambe le date in formato ddMMyyyy). Interroga prima la sintesi
+     * per sapere quali categorie hanno invii, poi l'elenco di ciascuna
+     * categoria supportata. Le altre categorie non sono ancora state
+     * osservate con dati reali (vedi dev/RELAZIONE_..., §7.3): se
+     * compaiono con un conteggio > 0 vengono segnalate e saltate, non
+     * fanno fallire il resto.
+     */
+    function raccogliVociCorrApi(dal, al, piva) {
+        return chiamataApi('/cons/cons-services/rs/corrispettivi/sintesi/dal/' + dal + '/al/' + al + '/piva/' + piva)
+            .then(function (sintesi) {
+                var categorie = categorieDaSintesi(sintesi);
+                var daLeggere = categorie.filter(function (c) { return c.conteggio > 0; });
+
+                daLeggere.forEach(function (c) {
+                    if (TIPI_CORRISPETTIVO_SUPPORTATI.indexOf(c.tipo) === -1) {
+                        log('Corrispettivi di tipo ' + c.etichetta + ' (' + c.conteggio + ' invii) non ancora supportati: saltati.');
+                    }
+                });
+
+                var supportate = daLeggere.filter(function (c) {
+                    return TIPI_CORRISPETTIVO_SUPPORTATI.indexOf(c.tipo) > -1;
+                });
+
+                return supportate.reduce(function (promessa, c) {
+                    return promessa.then(function (accum) {
+                        if (c.tipo === 'DC') {
+                            return elencoDC(dal, al, piva).then(function (voci) { return accum.concat(voci); });
+                        }
+                        var percorso = '/cons/cons-services/rs/corrispettivi/sintesi/elenco/dal/' + dal +
+                                       '/al/' + al + '/piva/' + piva + '/tipoCorrispettivo/' + c.tipo;
+                        return chiamataApi(percorso).then(function (j) {
+                            avvisoTroncamentoCorr(j, c.tipo);
+                            var voci = (j.corrispettivi || []).map(function (r) {
+                                var v = normalizzaVoceCorrispettivo(r);
+                                v.tipo = c.tipo;
+                                v.id = c.tipo + v.idInvio;
+                                return v;
+                            });
+                            return accum.concat(voci);
+                        });
+                    });
+                }, Promise.resolve([]));
+            });
+    }
+
+    /* ─── DISTRIBUTORI AUTOMATICI ───────────────────────────────────
+       Un distributore non trasmette il venduto del giorno ma i contatori
+       progressivi della macchina (modalità "CUMULATO"): ogni invio riporta
+       il totale venduto da quando la scheda è stata attivata. Sommare gli
+       invii, come si fa per gli RT, moltiplicherebbe il fatturato. Il
+       venduto di un intervallo è la differenza fra due letture consecutive
+       della stessa matricola, e per la prima lettura del periodo serve
+       quella precedente, che sta fuori dal periodo: la si cerca nei tre mesi
+       prima. Il tracciato DA non ripartisce per aliquota: il venduto è un
+       lordo IVA inclusa, e lo scorporo resta a chi registra.
+
+       Campi da app.bundle del portale (settembre 2026): elenco con
+       importo (= totale venduto), totaleIncassato, modalitaRilevazione,
+       timeRilevazione; dettaglio in datiContabiliDA, qui non necessario.
+    ─────────────────────────────────────────────────────────────── */
+
+    /** "01072026" → { dal: "01042026", al: "30062026" }: i tre mesi prima. null prima del 2015. */
+    function finestraPrecedente(dalDdMmYyyy) {
+        var g = +dalDdMmYyyy.slice(0, 2), m = +dalDdMmYyyy.slice(2, 4) - 1, a = +dalDdMmYyyy.slice(4);
+        var al = new Date(a, m, g - 1);
+        // Il 31/05 meno tre mesi è il 28/02, non il 03/03: si ferma a fine mese
+        var ultimo = new Date(a, m - 2, 0).getDate();
+        var dal = new Date(a, m - 3, Math.min(g, ultimo));
+        if (al.getFullYear() < 2015) return null;
+        if (dal.getFullYear() < 2015) dal = new Date(2015, 0, 1);
+        function f(d) { return pad2(d.getDate()) + pad2(d.getMonth() + 1) + d.getFullYear(); }
+        return { dal: f(dal), al: f(al) };
+    }
+
+    /**
+     * Dalle letture di un periodo (e da quelle dei mesi prima) al venduto per
+     * matricola. Una lettura non cumulativa vale per sé; una cumulativa vale
+     * la differenza con la precedente della stessa matricola. Quando la
+     * precedente manca o il progressivo scende (scheda azzerata o
+     * sostituita) il venduto resta vuoto con una nota: un numero inventato
+     * in un foglio di corrispettivi è peggio di una cella vuota.
+     */
+    function calcolaVendutoDA(letture, precedenti) {
+        function perQuando(a, b) { return a.quando < b.quando ? -1 : a.quando > b.quando ? 1 : 0; }
+        function cumulativa(r) { return /CUMUL/i.test(r.modalita || ''); }
+
+        var ultimaPrima = {};
+        (precedenti || []).slice().sort(perQuando).forEach(function (r) {
+            if (cumulativa(r)) ultimaPrima[r.matricola] = r;
+        });
+
+        var gruppi = {};
+        letture.forEach(function (r) { (gruppi[r.matricola] = gruppi[r.matricola] || []).push(r); });
+
+        var esito = {};
+        Object.keys(gruppi).forEach(function (mat) {
+            var prec = ultimaPrima[mat] || null;
+            var tot = { venduto: 0, nonCalcolabili: 0 };
+            var righe = gruppi[mat].sort(perQuando).map(function (r) {
+                var venduto = null, nota = '';
+                if (!cumulativa(r)) {
+                    venduto = r.totaleLordo;
+                    nota = 'importo del singolo invio (modalità ' + (r.modalita || 'non indicata') + ')';
+                } else if (!prec) {
+                    nota = 'lettura precedente non trovata nei tre mesi prima: differenza non calcolabile';
+                } else {
+                    var d = Math.round((r.totaleLordo - prec.totaleLordo) * 100) / 100;
+                    if (d < 0) nota = 'progressivo inferiore alla lettura del ' + prec.data + ': scheda azzerata o sostituita? Verificare';
+                    else venduto = d;
+                }
+                if (cumulativa(r)) prec = r;
+                if (venduto === null) tot.nonCalcolabili++;
+                else tot.venduto += venduto;
+                return {
+                    idInvio: r.idInvio, data: r.data, modalita: r.modalita,
+                    progressivo: r.totaleLordo, incassato: r.incassato,
+                    venduto: venduto, nota: nota
+                };
+            });
+            tot.venduto = Math.round(tot.venduto * 100) / 100;
+            esito[mat] = { righe: righe, venduto: tot.venduto, nonCalcolabili: tot.nonCalcolabili };
+        });
+        return esito;
+    }
+
+    /** Elenco DA di un periodo, normalizzato. Errori e periodo vuoto → []. */
+    function elencoDA(dal, al, piva) {
+        return chiamataApi('/cons/cons-services/rs/corrispettivi/sintesi/elenco/dal/' + dal +
+                           '/al/' + al + '/piva/' + piva + '/tipoCorrispettivo/DA')
+            .then(function (j) {
+                avvisoTroncamentoCorr(j, 'DA');
+                return (j.corrispettivi || []).map(normalizzaVoceCorrispettivo);
+            });
+    }
+
+    /** Le letture dei tre mesi prima del periodo, per avere il punto di partenza di ogni matricola. */
+    function letturePrecedentiDA(dal, piva) {
+        var f = finestraPrecedente(dal);
+        if (!f) return Promise.resolve([]);
+        return elencoDA(f.dal, f.al, piva).catch(function (e) {
+            log('Letture dei distributori prima del periodo non disponibili: ' + e);
+            return [];
+        });
+    }
+
+    /** Il portale restituisce al più un certo numero di invii: se ne mancano, va detto. */
+    function avvisoTroncamentoCorr(j, tipo) {
+        var totale = parseInt(j.totaleCorrispettivi, 10);
+        var arrivati = (j.corrispettivi || []).length;
+        if (!isNaN(totale) && totale > arrivati) {
+            log('Corrispettivi ' + tipo + ': il portale ne segnala ' + totale + ', arrivati solo ' +
+                arrivati + '. Restringere il periodo.');
+        }
+    }
+
+    /* ─── DOCUMENTI COMMERCIALI ONLINE ──────────────────────────────
+       La procedura web "Documento commerciale online" non ha matricola né
+       invii: il portale ne dà un aggregato per giorno, con endpoint e campi
+       propri (letti dall'app.bundle, settembre 2026):
+         elenco    rs/corrispettivi/dc/ricerca/dal/{d}/al/{a}/piva/{p}
+                   → elenco[]: id, dataEmissione, imponibileGiornata, imposta,
+                     importoReso, importoAnnullato, imponibileNonRiscosso
+         dettaglio rs/corrispettivi/dc/dettaglio/{id}
+                   → listaAliquota[]: aliquotaIva, imponibile, imposta, resi,
+                     annulli, natura, codiceAttivita
+       Nell'Excel diventano un foglio unico, come se fossero una matricola.
+       L'imponibile del giorno è già al netto di resi e annulli.
+    ─────────────────────────────────────────────────────────────── */
+
+    var MATRICOLA_DC = 'Documenti commerciali online';
+
+    function elencoDC(dal, al, piva) {
+        return chiamataApi('/cons/cons-services/rs/corrispettivi/dc/ricerca/dal/' + dal + '/al/' + al + '/piva/' + piva)
+            .then(function (j) {
+                return (j.elenco || []).map(function (r) {
+                    return {
+                        tipo: 'DC', id: String(r.id), idInvio: String(r.id),
+                        matricola: MATRICOLA_DC,
+                        data: isoADataIt(r.dataEmissione),
+                        quando: String(r.dataEmissione || ''),
+                        totaleLordo: convApiImporto(r.imponibileGiornata) + convApiImporto(r.imposta)
+                    };
+                });
+            });
+    }
+
+    /** Dettaglio DC nella stessa forma di normalizzaDettaglioCorrispettivo. */
+    function normalizzaDettaglioDC(j) {
+        var aliquote = {};
+        var resi = 0, annulli = 0;
+        (j.listaAliquota || []).forEach(function (r) {
+            var aliq = parseFloat(String(r.aliquotaIva || '').replace(',', '.'));
+            var natura = String(r.natura || '').trim();
+            var id = aliq > 0 ? aliq + '%' : (natura || 'Esente/N.I.');
+            if (!aliquote[id]) aliquote[id] = { imp: 0, iva: 0 };
+            aliquote[id].imp += convApiImporto(r.imponibile);
+            aliquote[id].iva += convApiImporto(r.imposta);
+            resi += convApiImporto(r.resi);
+            annulli += convApiImporto(r.annulli);
+        });
+        return { aliquote: aliquote, resi: resi, annulli: annulli };
+    }
+
+    /** Chiama il dettaglio di ogni corrispettivo, raggruppando per matricola. */
+    function analizzaDettagliCorrApi(voci) {
         var datiPerMatricola = {};
         var esiti = creaRegistroEsiti(voci.length);
         nastro.prepara(voci.length);
@@ -3149,116 +3537,31 @@
 
             var voce = voci[idx];
             var chiave = voce.matricola + ' ' + voce.data;
+            aggiornaBarra(esiti, idx, voci.length, chiave, idx / voci.length * 100);
 
-            // Vedi lo stesso schema in scaricaFatture: un'annotazione sola per
-            // voce, mai zero mai due, altrimenti il nastro sfasa i colori.
-            var annotato = false;
-            function annotaUnaVolta(esito, motivo) {
-                if (annotato) return;
-                annotato = true;
-                esiti.annota(chiave, esito, motivo);
-            }
-
-            try {
-                aggiornaBarra(esiti, idx, voci.length, chiave, 15 + (idx / voci.length * 82));
-                window.location.hash = voce.hash;
-            } catch (e) {
-                annotaUnaVolta(ESITO.ERRORE, String(e));
-                return passo(idx + 1);
-            }
-
-            return attendi(dettaglioCorrPronto).then(function (ok) {
-                if (!ok) {
-                    annotaUnaVolta(ESITO.ERRORE, 'dettaglio non caricato');
-                    return;
-                }
-
-                var dettIva = leggiDettaglioCorr();
-                // La matricola viene sempre dalla lista, mai dall'URL
-                var mat = voce.matricola;
-                if (!datiPerMatricola[mat]) datiPerMatricola[mat] = [];
-                datiPerMatricola[mat].push({
-                    data:        voce.data,
-                    idInvio:     voce.idInvio || '',
-                    totaleLordo: voce.totaleLordo,
-                    aliquote:    dettIva.aliquote,
-                    resi:        dettIva.resi,
-                    annulli:     dettIva.annulli
-                });
-                annotaUnaVolta(ESITO.RIUSCITO, '');
-            }).catch(function (e) {
-                annotaUnaVolta(ESITO.ERRORE, String(e));
-            }).then(function () {
-                return tornaAllaLista().catch(function (e) {
-                    log('Ritorno alla lista fallito dopo ' + chiave + ': ' + e);
-                });
-            }).catch(function (e) {
-                annotaUnaVolta(ESITO.ERRORE, String(e));
-            }).then(function () {
-                return passo(idx + 1);
-            });
+            var percorso = voce.tipo === 'DC'
+                ? '/cons/cons-services/rs/corrispettivi/dc/dettaglio/' + voce.id
+                : '/cons/cons-services/rs/corrispettivi/dettaglio/' + voce.id;
+            return chiamataApi(percorso)
+                .then(function (j) {
+                    var dett = voce.tipo === 'DC' ? normalizzaDettaglioDC(j) : normalizzaDettaglioCorrispettivo(j);
+                    var mat = voce.matricola;
+                    if (!datiPerMatricola[mat]) datiPerMatricola[mat] = [];
+                    datiPerMatricola[mat].push({
+                        data: voce.data, idInvio: voce.idInvio, totaleLordo: voce.totaleLordo,
+                        aliquote: dett.aliquote, resi: dett.resi, annulli: dett.annulli
+                    });
+                    esiti.annota(chiave, ESITO.RIUSCITO, '');
+                })
+                .catch(function (e) {
+                    esiti.annota(chiave, ESITO.ERRORE, String(e));
+                })
+                .then(function () { return pausa(150).then(function () { return passo(idx + 1); }); });
         }
 
         return passo(0);
     }
 
-
-    /**
-     * Legge la tabella IVA dalla pagina di dettaglio aperta.
-     * Cerca la prima <table> che ha un <th> con testo "Aliquota" nell'header.
-     * Raccoglie SOLO le righe con classe ng-scope (esclude la riga "Totale:").
-     */
-    function leggiDettaglioCorr() {
-        var result = { aliquote: {}, resi: 0, annulli: 0 };
-
-        // Trova la tabella IVA
-        var tabIva = null;
-        var tables = document.querySelectorAll('table');
-        for (var t = 0; t < tables.length; t++) {
-            var ths = tables[t].querySelectorAll('thead th');
-            for (var h = 0; h < ths.length; h++) {
-                if (ths[h].innerText.indexOf('Aliquota') > -1) { tabIva = tables[t]; break; }
-            }
-            if (tabIva) break;
-        }
-        if (!tabIva) { log('Tabella IVA non trovata'); return result; }
-
-        // Solo righe dati (ng-scope), non la riga riepilogativa "Totale:"
-        var righe = tabIva.querySelectorAll('tbody tr.ng-scope');
-        if (righe.length === 0) {
-            // Fallback: tutte le righe tranne l'ultima (che è "Totale:")
-            var tutte = tabIva.querySelectorAll('tbody tr');
-            righe = Array.prototype.slice.call(tutte, 0, tutte.length - 1);
-        }
-
-        Array.prototype.forEach.call(righe, function (r) {
-            var c = r.children;
-            if (!c[1]) return;
-
-            var aliquota = c[1].innerText.trim();          // "10.00 %"
-            var natura   = c[4] ? c[4].innerText.trim() : '';
-            var ventil   = c[5] ? c[5].innerText.trim() : '';
-
-            // Imponibile: può stare in uno span.ng-binding dentro la cella (nuovo tracciato)
-            var impSpan  = c[2] ? c[2].querySelector('span.ng-binding') : null;
-            var imp      = impSpan ? convN(impSpan.innerText) : (c[2] ? convN(c[2].innerText) : 0);
-            var iva      = c[3] ? convN(c[3].innerText) : 0;
-            var resi     = c[8] ? convN(c[8].innerText) : 0;
-            var annulli  = c[9] ? convN(c[9].innerText) : 0;
-
-            // Identificatore aliquota: ventilazione > aliquota numerica > natura > generico
-            var id = ventil   ? 'Ventilazione IVA' :
-                     (parseFloat(aliquota) > 0 ? aliquota.replace(/\s/g, '') : (natura || 'Esente/N.I.'));
-
-            if (!result.aliquote[id]) result.aliquote[id] = { imp: 0, iva: 0 };
-            result.aliquote[id].imp += imp;
-            result.aliquote[id].iva += iva;
-            result.resi    += resi;
-            result.annulli += annulli;
-        });
-
-        return result;
-    }
     /**
      * Un file solo, un foglio per matricola più un foglio di riepilogo.
      *
@@ -3269,9 +3572,16 @@
      * Resi e annulli sono già sottratti a monte dal portale: restano come
      * promemoria in due colonne dedicate, ma non incidono sul totale.
      */
-    function generaExcelCorrispettivi(datiPerMatricola) {
+    function testoNonCalcolabili(n) {
+        if (!n) return '';
+        return n === 1 ? '1 lettura senza differenza calcolabile' : n + ' letture senza differenza calcolabile';
+    }
+
+    function generaExcelCorrispettivi(datiPerMatricola, datiDA) {
+        datiDA = datiDA || {};
         var matricole = Object.keys(datiPerMatricola);
-        if (matricole.length === 0) { setStatus('Nessun dato raccolto.'); return; }
+        var matricoleDA = Object.keys(datiDA).sort();
+        if (matricole.length === 0 && matricoleDA.length === 0) { setStatus('Nessun dato raccolto.'); return; }
 
         function dataDaIt(s) {
             var p = s ? s.split('/') : [];
@@ -3280,7 +3590,7 @@
 
         var fogli = [];
         var riepilogo = {};      // matricola → {imp, iva, giorni}
-        var totGenerale = { imp: 0, iva: 0, giorni: 0 };
+        var totGenerale = { imp: 0, iva: 0, giorni: 0, lordoDA: 0 };
 
         matricole.sort().forEach(function (matricola) {
             var giorni = datiPerMatricola[matricola];
@@ -3363,6 +3673,43 @@
             totGenerale.giorni += giorni.length;
         });
 
+        /*
+         * Distributori automatici: un foglio per matricola con il progressivo
+         * trasmesso e il venduto ricavato per differenza. Niente colonne per
+         * aliquota, perché il tracciato non le ha.
+         */
+        matricoleDA.forEach(function (matricola) {
+            var d = datiDA[matricola];
+            var intest = ['ID Invio', 'Data', 'Modalità', 'Progressivo venduto', 'Progressivo incassato',
+                          'Venduto (IVA inclusa)', 'Note'];
+            var righeFoglio = [
+                riga([cella('Distributore automatico - ' + matricola, 'testo', 'titolo')].concat(
+                     intest.slice(1).map(function () { return cella('', 'vuoto', 'titolo'); }))),
+                riga(intest.map(function (t) { return cella(t, 'testo', 'intestazione'); }))
+            ];
+            d.righe.forEach(function (r) {
+                righeFoglio.push(riga([
+                    cella(r.idInvio, 'testo', 'centrato'),
+                    cella(r.data, 'data', 'data'),
+                    cella(r.modalita, 'testo', 'centrato'),
+                    cella(r.progressivo, 'numero', 'valutaMemo'),
+                    cella(r.incassato, 'numero', 'valutaMemo'),
+                    r.venduto === null ? cella('', 'vuoto') : cella(r.venduto, 'numero', 'valutaTot'),
+                    cella(r.nota, 'testo')
+                ]));
+            });
+            righeFoglio.push(riga([
+                cella('TOTALE', 'testo', 'totaleTesto'),
+                cella('', 'vuoto', 'totaleTesto'), cella('', 'vuoto', 'totaleTesto'),
+                cella('', 'vuoto', 'totaleTesto'), cella('', 'vuoto', 'totaleTesto'),
+                cella(d.venduto, 'numero', 'totale'),
+                cella(testoNonCalcolabili(d.nonCalcolabili), 'testo', 'totaleTesto')
+            ]));
+            fogli.push({ nome: matricola, larghezze: [90, 76, 80, 110, 110, 110, 330], righe: righeFoglio });
+            totGenerale.giorni += d.righe.length;
+            totGenerale.lordoDA += d.venduto;
+        });
+
         // Foglio di riepilogo, in testa: con più registratori è la prima cosa che serve
         var righeRiep = [
             riga([cella('Riepilogo per matricola', 'testo', 'titolo')].concat(
@@ -3381,21 +3728,37 @@
                 cella(r.imp + r.iva, 'numero', 'valutaTot')
             ]));
         });
+        matricoleDA.forEach(function (m) {
+            var d = datiDA[m];
+            righeRiep.push(riga([
+                cella(m + ' (distributore)' + (d.nonCalcolabili ? ', ' + testoNonCalcolabili(d.nonCalcolabili) : ''), 'testo'),
+                cella(d.righe.length, 'numero', 'centrato'),
+                cella('', 'vuoto'),
+                cella('', 'vuoto'),
+                cella(d.venduto, 'numero', 'valutaTot')
+            ]));
+        });
         righeRiep.push(riga([
             cella('TOTALE', 'testo', 'totaleTesto'),
             cella(totGenerale.giorni, 'numero', 'totale'),
             cella(totGenerale.imp, 'numero', 'totale'),
             cella(totGenerale.iva, 'numero', 'totale'),
-            cella(totGenerale.imp + totGenerale.iva, 'numero', 'totale')
+            cella(totGenerale.imp + totGenerale.iva + totGenerale.lordoDA, 'numero', 'totale')
         ]));
+        if (matricoleDA.length) {
+            righeRiep.push(riga([cella('', 'vuoto')]));
+            righeRiep.push(riga([cella('Distributori automatici: venduto IVA inclusa, calcolato come differenza ' +
+                'fra progressivi consecutivi. Il tracciato non ripartisce per aliquota: imponibile e IVA ' +
+                'restano da scorporare.', 'testo')]));
+        }
 
         fogli.unshift({ nome: 'Riepilogo', larghezze: [150, 70, 100, 100, 100], righe: righeRiep });
 
         var file = nomeFile('corrispettivi');
         scaricaCartella(costruisciCartella(fogli), file);
 
-        setProgress(100, file + '   ' + matricole.length +
-                    (matricole.length === 1 ? ' matricola' : ' matricole'));
+        var nMat = matricole.length + matricoleDA.length;
+        setProgress(100, file + '   ' + nMat + (nMat === 1 ? ' matricola' : ' matricole'));
     }
 
 
@@ -3404,40 +3767,59 @@
     ═══════════════════════════════════════════════════════════════ */
 
     /**
-     * Colloca il selettore sotto l'intestazione "Data di emissione" e sopra la
-     * label "Dal:", non fra i due campi data: infilato là in mezzo spezzava la
-     * coppia Dal/Al e si leggeva peggio di dove sta ora.
+     * Colloca il selettore fra l'intestazione del campo ("Data di emissione",
+     * "Periodo di rilevazione") e la coppia Dal/Al.
      *
-     * Il portale non dà appigli stabili, quindi si procede per tentativi
-     * decrescenti, dal più preciso al più grossolano.
+     * Nel frontend React i due campi stanno nello stesso `.input-group`
+     * Bootstrap: la versione precedente risaliva al primo contenitore che
+     * racchiudeva entrambi, trovava proprio l'input-group e ci infilava il
+     * selettore fra l'etichetta "Dal" e il campo, spezzando la riga in due.
+     * Ora il riferimento è l'input-group stesso, e il selettore va subito
+     * dopo: la riga ufficiale del portale resta in alto, sotto la sua
+     * intestazione, e il selettore le fa da complemento.
      */
-    function inserisciSopraDal(box, Dal, Al) {
-        // Il contenitore che racchiude entrambi i campi: è il gruppo della data
-        var gruppo = Dal.parentNode;
-        while (gruppo && gruppo !== document.body && !gruppo.contains(Al)) {
-            gruppo = gruppo.parentNode;
-        }
-        if (!gruppo || gruppo === document.body) {
-            (Dal.parentNode || document.body).insertBefore(box, Dal);
-            return;
-        }
+    function inserisciSottoDalAl(box, Dal) {
+        var gruppo = Dal.closest ? Dal.closest('.input-group') : null;
+        var riferimento = gruppo || Dal;
+        (riferimento.parentNode || document.body).insertBefore(box, riferimento.nextSibling);
+    }
 
-        // La label del campo Dal, se il portale la collega esplicitamente
-        var label = gruppo.querySelector('label[for="dal"]');
-        if (label && label.parentNode) {
-            label.parentNode.insertBefore(box, label);
-            return;
+    /**
+     * L'ultimo giorno che il form del portale accetta. Di norma è oggi, ma il
+     * portale fissa il suo "oggi" al caricamento della pagina (attributo max
+     * dei campi data e regola di validazione): una pagina aperta ieri sera
+     * rifiuta la data di stamattina con "Deve essere precedente o uguale alla
+     * data odierna". Si prende quindi il più piccolo fra oggi e quel max.
+     */
+    function ultimoGiornoAccettato() {
+        var oggi = new Date();
+        var al = document.getElementById('al');
+        var max = al && al.max ? al.max.split('-') : null;
+        if (max && max.length === 3) {
+            var limite = new Date(+max[0], +max[1] - 1, +max[2]);
+            if (limite < oggi) return limite;
         }
+        return oggi;
+    }
 
-        // Altrimenti il blocco di primo livello che contiene Dal
-        var blocco = Dal;
-        while (blocco.parentNode && blocco.parentNode !== gruppo) blocco = blocco.parentNode;
-        if (blocco.parentNode === gruppo) {
-            gruppo.insertBefore(box, blocco);
-            return;
-        }
-
-        gruppo.insertBefore(box, gruppo.firstChild);
+    /**
+     * Scrive un valore in un campo controllato da React.
+     *
+     * React tiene una copia del valore e scatta onChange solo se il campo
+     * risulta diverso da quella copia. Un `campo.value = x` passa dal setter
+     * che React ha installato sull'istanza e aggiorna anche la copia: l'evento
+     * arriva, React confronta, non vede differenze e il form resta con il
+     * valore vecchio. Per questo "Applica" cambiava la data a video ma la
+     * ricerca partiva col periodo precedente. Il setter nativo del prototipo
+     * scavalca quello di React.
+     */
+    function scriviCampoReact(campo, valore) {
+        var proto = Object.getPrototypeOf(campo);
+        var desc = proto && Object.getOwnPropertyDescriptor(proto, 'value');
+        if (desc && desc.set) desc.set.call(campo, valore);
+        else campo.value = valore;
+        campo.dispatchEvent(new Event('input', { bubbles: true }));
+        campo.dispatchEvent(new Event('change', { bubbles: true }));
     }
 
     function creaSelezionaDate() {
@@ -3465,7 +3847,7 @@
         box.style.cssText = 'background:' + COL_CHIARO.fondo + ';color:' + COL_CHIARO.testo + ';' +
             'border:1px solid ' + COL_CHIARO.bordo + ';' +
             'border-left:3px solid ' + COL_CHIARO.accento + ';border-radius:2px;' +
-            'padding:9px 12px;margin-top:8px;' +
+            'padding:9px 12px;margin:8px 0 0 0;' +
             'font-family:' + FONT_UI + ';font-size:12px;display:flex;align-items:center;' +
             'gap:8px;flex-wrap:wrap;outline:none;';
 
@@ -3487,7 +3869,7 @@
             '<label id="FEPlugin_EtichettaAnnoPagina">Anno ' +
                 '<input type="number" id="FEPlugin_Anno"></label>' +
             '<select id="FEPlugin_PeriodSel" aria-label="Periodo"></select>' +
-            '<button id="FEPlugin_ApplicaDate" class="fepBtn fep-primario">Applica</button>' +
+            '<button type="button" id="FEPlugin_ApplicaDate" class="fepBtn fep-primario">Applica</button>' +
             /*
              * Il suggerimento diceva "1-9 0 O P": in monospazio lo zero e la
              * lettera O sono lo stesso disegno e non si capiva quale premere.
@@ -3497,7 +3879,7 @@
             '<span id="FEPlugin_AiutoTasti">tastierino 1-4 trimestri &middot; 1-9 gen-set &middot; ' +
                 'zero ott &middot; O nov &middot; P dic</span>';
 
-        // box non è ancora nel DOM (viene inserita da inserisciSopraDal più
+        // box non è ancora nel DOM (viene inserita da inserisciSottoDalAl più
         // sotto): gli elementi al suo interno si cercano con querySelector
         // sulla box stessa, non con document.getElementById.
         box.querySelector('#FEPlugin_EtichettaPeriodo').style.cssText =
@@ -3517,12 +3899,12 @@
         selPagina.style.cssText = stileCampo;
         riempiOpzioniPeriodo(selPagina, false);
 
-        inserisciSopraDal(box, Dal, Al);
+        inserisciSottoDalAl(box, Dal);
 
         function applica() {
             var anno = parseInt(document.getElementById('FEPlugin_Anno').value, 10);
             var codice = document.getElementById('FEPlugin_PeriodSel').value;
-            var p = calcolaPeriodo(anno, codice, oggi);
+            var p = calcolaPeriodo(anno, codice, ultimoGiornoAccettato());
             if (!p) return;
             applicaPeriodoAlForm(p.dal, p.al);
         }
@@ -3540,6 +3922,9 @@
         for (var i = 1; i <= 9; i++) SCORCIATOIE[48 + i] = 'M' + i;
 
         box.addEventListener('keydown', function (e) {
+            // Il selettore sta dentro il <form> del portale: Invio sul campo
+            // anno lo invierebbe con il periodo vecchio
+            if (e.key === 'Enter') { e.preventDefault(); applica(); return; }
             var attivo = document.activeElement;
             if (attivo && (attivo.tagName === 'INPUT' || attivo.tagName === 'SELECT')) return;
             var periodo = SCORCIATOIE[e.keyCode];
@@ -3598,13 +3983,44 @@
             attendi(campiDataPresenti, 5000).then(autoAttivaDateSelector);
         });
 
-        // Angular cambia vista senza ricaricare la pagina: si segue l'hash
-        window.addEventListener('hashchange', function () {
+        // Il router React cambia vista senza ricaricare la pagina, tramite
+        // history.pushState/replaceState (non c'è più un hash da seguire):
+        // si intercettano entrambi, più popstate per i tasti avanti/indietro.
+        function alCambioRotta() {
             attendi(campiDataPresenti, 5000).then(autoAttivaDateSelector);
+        }
+        ['pushState', 'replaceState'].forEach(function (metodo) {
+            var originale = history[metodo];
+            history[metodo] = function () {
+                var risultato = originale.apply(history, arguments);
+                alCambioRotta();
+                return risultato;
+            };
         });
+        window.addEventListener('popstate', alCambioRotta);
+
+        /*
+         * Sotto Tampermonkey lo script gira in una sandbox: il router della
+         * pagina chiama il proprio history.pushState, non quello modificato
+         * qui, e la patch sopra resta muta (funziona solo come estensione,
+         * in world MAIN). Un controllo leggero del percorso copre quel caso,
+         * e rimette il selettore anche se React lo toglie ridisegnando il form.
+         */
+        var ultimoPercorso = window.location.pathname;
+        setInterval(function () {
+            if (window.location.pathname !== ultimoPercorso) {
+                ultimoPercorso = window.location.pathname;
+                alCambioRotta();
+            } else if (campiDataPresenti()) {
+                autoAttivaDateSelector();
+            }
+        }, 1000);
 
         // Se la finestra si chiude a metà di un ciclo, quello che è fatto resta fatto
         window.addEventListener('beforeunload', function () { deposito.scaricaOra(); });
+
+        // La barra non deve finire nelle schermate stampate o salvate in PDF
+        osservaStampa();
 
         log('FE-Utility v' + VERSION + ' avviato - ' + new Date().toLocaleString());
     }
@@ -3625,6 +4041,22 @@
             calcolaPeriodo: calcolaPeriodo,
             calcolaChunkAnno: calcolaChunkAnno,
             fmtDataIt: fmtDataIt,
+            convApiImporto: convApiImporto,
+            isoADataIt: isoADataIt,
+            isoAggMmYyyy: isoAggMmYyyy,
+            dataItADdMmYyyy: dataItADdMmYyyy,
+            dataItAIso: dataItAIso,
+            normalizzaVoceFattura: normalizzaVoceFattura,
+            normalizzaDettaglioFattura: normalizzaDettaglioFattura,
+            normalizzaVoceCorrispettivo: normalizzaVoceCorrispettivo,
+            normalizzaDettaglioCorrispettivo: normalizzaDettaglioCorrispettivo,
+            direzioneTransfrontaliera: direzioneTransfrontaliera,
+            avvisiElenco: avvisiElenco,
+            categorieDaSintesi: categorieDaSintesi,
+            unisciFeFt: unisciFeFt,
+            finestraPrecedente: finestraPrecedente,
+            normalizzaDettaglioDC: normalizzaDettaglioDC,
+            calcolaVendutoDA: calcolaVendutoDA,
             TEMI: TEMI,
             TEMA_PREDEFINITO: TEMA_PREDEFINITO,
             OPZIONI_PREDEFINITE: OPZIONI_PREDEFINITE,
@@ -3636,18 +4068,12 @@
             ESITO: ESITO,
             creaRegistroEsiti: creaRegistroEsiti,
             riepilogoAvanzamento: riepilogoAvanzamento,
-            xmlEsc: xmlEsc, dataIsoDaIt: dataIsoDaIt,
+            xmlEsc: xmlEsc, serialeDataIt: serialeDataIt,
             cella: cella, riga: riga,
             costruisciCartella: costruisciCartella,
             nomeFoglioValido: nomeFoglioValido,
             generaExcelFatture: generaExcelFatture,
-            generaExcelCorrispettivi: generaExcelCorrispettivi,
-            leggiDettaglioFattura: leggiDettaglioFattura,
-            leggiDettaglioCorr: leggiDettaglioCorr,
-            leggiRigheLista: leggiRigheLista,
-            leggiRigheTransfrontaliere: leggiRigheTransfrontaliere,
-            mappaColonneLista: mappaColonneLista,
-            resetMappaColonne: resetMappaColonne
+            generaExcelCorrispettivi: generaExcelCorrispettivi
         };
     } else {
         avvia();

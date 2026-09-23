@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "FE-Utility",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Scarico massivo ed export in Excel dal portale Fatture e Corrispettivi dell'Agenzia delle Entrate.",
   "author": "denvermotel",
   "homepage_url": "https://denvermotel.github.io/fe-utility/",

@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.1] - 2026-09-23
+
+### Nuovo
+- **Riscrittura userscript per supporto al nuovo portale Fatture e Corrispettivi**
+- **Export in .xlsx vero** (OOXML) al posto dello SpreadsheetML salvato come `.xls`: Excel non mostra più l'avviso di formato all'apertura
+- **Corrispettivi da documenti commerciali online** (procedura web dell'Agenzia): un foglio con l'aggregato giornaliero diviso per aliquota e natura
+- **Corrispettivi da distributori automatici**: il portale trasmette contatori progressivi, quindi il venduto è calcolato come differenza fra letture consecutive della stessa matricola, cercando la lettura precedente nei tre mesi prima del periodo. Il valore è IVA inclusa.
+
+### Fix
+- Barra, linguetta e selettore esclusi dalle schermate stampate o salvate in PDF
+- Scarico dalle pagine transfrontaliere: chiede se scaricare solo le transfrontaliere o tutte le fatture; senza risposta entro 10 secondi scarica le sole transfrontaliere
+- Excel delle transfrontaliere: imponibile e IVA letti dal dettaglio di ogni fattura, prima uscivano a zero
+- "Interrompi" chiude anche una domanda in attesa nella barra
+- **Scarico fatture ed export Excel** rotti dal rifacimento React del frontend "Consultazione" del portale Fatture e Corrispettivi (settembre 2026): lo userscript ora chiama direttamente le stesse API REST che la pagina usa già (`/cons/cons-services/rs/...`) invece di leggere/pilotare il DOM AngularJS, che il nuovo frontend non genera più
+- Selettore rapido del periodo: i campi "Dal"/"Al" del portale sono ora `<input type="date">` nativi (valore ISO), non più testo libero: lo scrittore del periodo converte di conseguenza
+
 ## [1.0] - 2026-08-08
 
 ### Nuovo
@@ -97,4 +113,4 @@ ridisegno dell'interfaccia verso la 1.00.
 
 
 ## [0.93-alpha] - 2026-02-24
-- Prima versione pubblica con download fatture, export Excel, selettore date
+- Prima versione open-source pubblica su GitHub con download fatture, export Excel, selettore date
