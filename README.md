@@ -161,12 +161,6 @@ Permessi: solo `storage`, per il registro delle fatture scaricate e le preferenz
 
 ---
 
-## Sviluppo
-
-`docs/` contiene solo le pagine pubblicate su GitHub Pages (`index.html` e `privacy.html`). Il materiale di sviluppo sta in `dev/`: documento di progetto, piani di lavoro in `dev/superpowers/`, pagine di prova salvate dal portale. `dev/` resta fuori dal repository perché contiene dati reali.
-
----
-
 ## Licenza
 
 [GPL-3.0](LICENSE)
