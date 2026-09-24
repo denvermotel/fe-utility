@@ -137,8 +137,6 @@ Gli importi sono numeri: selezioni la colonna e vedi la somma, senza conversioni
 | Safari | Userscripts (app Mac App Store) | Provato sulla 0.97 |
 | Firefox | Greasemonkey 4 | Non provato |
 
-> La 1.1 è in collaudo sul nuovo portale. Scarico delle fatture, transfrontaliere ed Excel dei corrispettivi da registratore telematico risultano provati su Firefox con Tampermonkey.
-
 ---
 
 ## Estensioni Chrome e Firefox
